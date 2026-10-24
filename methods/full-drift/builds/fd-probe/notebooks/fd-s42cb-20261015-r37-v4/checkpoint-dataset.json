@@ -1,0 +1,153 @@
+{
+  "dataset": "hoangdang1711/mobihet-fulldrift-src-20261015-r37",
+  "files": {
+    "__init__.py": {
+      "size": 0
+    },
+    "archs.py": {
+      "size": 1235
+    },
+    "channel.py": {
+      "size": 3128
+    },
+    "dagsnet.py": {
+      "size": 8486
+    },
+    "fd.py": {
+      "size": 127429
+    },
+    "fd_eval.py": {
+      "size": 9946
+    },
+    "fd_prepare.py": {
+      "size": 2202
+    },
+    "full_driver.py": {
+      "size": 14039
+    },
+    "full_method.py": {
+      "size": 3597
+    },
+    "full_run.py": {
+      "size": 9167
+    },
+    "meta.json": {
+      "size": 3274
+    },
+    "metrics.py": {
+      "size": 2392
+    },
+    "mobility.py": {
+      "size": 9971
+    },
+    "model_packet.py": {
+      "size": 3365
+    },
+    "new_fl.py": {
+      "size": 11061
+    },
+    "new_methods.py": {
+      "size": 7925
+    },
+    "p2.py": {
+      "size": 11695
+    },
+    "pilot.py": {
+      "size": 28444
+    },
+    "prepare.py": {
+      "size": 10253
+    },
+    "scaler.json": {
+      "size": 20334
+    },
+    "teacher_base.py": {
+      "size": 4708
+    },
+    "teacher_driver.py": {
+      "size": 13946
+    },
+    "v10_energy.py": {
+      "size": 8043
+    },
+    "v10_run.py": {
+      "size": 468
+    },
+    "v2_math.py": {
+      "size": 7842
+    },
+    "v2_methods.py": {
+      "size": 12719
+    },
+    "v2_run.py": {
+      "size": 13369
+    },
+    "v3_dense.py": {
+      "size": 634
+    },
+    "v3_math.py": {
+      "size": 3701
+    },
+    "v3_methods.py": {
+      "size": 8039
+    },
+    "v3_run.py": {
+      "size": 628
+    },
+    "v4_mala.py": {
+      "size": 4622
+    },
+    "v4_run.py": {
+      "size": 867
+    },
+    "v4_schema.py": {
+      "size": 3268
+    },
+    "v4_support.py": {
+      "size": 5666
+    },
+    "v5_anchor.py": {
+      "size": 7315
+    },
+    "v5_books.py": {
+      "size": 7596
+    },
+    "v5_run.py": {
+      "size": 1043
+    },
+    "v6_geometry.py": {
+      "size": 16131
+    },
+    "v6_run.py": {
+      "size": 1555
+    },
+    "v6_schema.py": {
+      "size": 4146
+    },
+    "v7_basis.py": {
+      "size": 6017
+    },
+    "v7_nystrom.py": {
+      "size": 12543
+    },
+    "v7_run.py": {
+      "size": 527
+    },
+    "v8_hybrid.py": {
+      "size": 7484
+    },
+    "v8_run.py": {
+      "size": 661
+    },
+    "v9_anchor.py": {
+      "size": 10090
+    },
+    "v9_run.py": {
+      "size": 490
+    },
+    "input_manifest.json": {
+      "size": 4081
+    }
+  },
+  "uploaded": false
+}

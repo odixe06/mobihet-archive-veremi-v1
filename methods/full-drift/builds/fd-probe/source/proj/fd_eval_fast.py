@@ -54,6 +54,7 @@ class FastDAGSNet(torch.nn.Module):
             self.register_buffer(key + '_w', torch.empty_like(w)); self.register_buffer(key + '_b', torch.empty_like(b)); self.shapes[key] = shapes
         for name, t in self.head(model): self.register_buffer(name, torch.empty_like(t))
         self.eps, self.positions, self.channels = model.head[0].eps, model.k, model.patch_len
+        self.input_pad = model.input_pad
         self.load(model)
 
     @staticmethod
@@ -113,6 +114,7 @@ class FastDAGSNet(torch.nn.Module):
         return x.view(x.shape[0], -1, 2, x.shape[2]).amax(2)
 
     def forward(self, x):
+        if self.input_pad: x = F.pad(x, (0, self.input_pad))
         x = x.view(x.shape[0], self.positions, self.channels)   # DAGSNet.combined: view(B, k, p).transpose(1, 2) in (B, C, L)
         d, g, a, q = self.cbr('stem', x)
         for i in range(3): d = torch.cat([d, *self.cbr(f'dense{i}', d)], dim=-1)

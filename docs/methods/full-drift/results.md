@@ -775,3 +775,19 @@ CCVR Project48 giảm calibration packet, teacher PASS hai seed Kaggle nhưng pr
 class-weighted local chưa đủ gain, pooled-real support oracle chỉ chẩn đoán R3-ineligible, gradient-only teacher **FAIL**.
 Terminal source/input/predictions đã audit; đây là frozen-head mechanism screen, không online ep15/r50 hoặc R1/R2 proof.
 Owner dừng để compact; chưa launch phương pháp mới, run cuối giữ `gkd + la + kdpx`, proxy `q3_zl`.
+
+## Kiểm chứng feature trên recipe hiện hành — seed42 ep15 (audit 25/10)
+
+Cùng `--fast --holdout_only`, 20 client, seed42, round1→15; headline là macro-F1 `private/head/group`.
+`m4b` dùng đối chứng đã audit vòng 22 (`xa`); hai artifact mới dùng cùng collector/pattern với đối chứng.
+
+| input | kernel | private group | proxy group | Δ private vs m4b | trạng thái |
+|---|---|---:|---:|---:|---|
+| full66 | `hoangdang1711/…s42fa…r32-v1` | 0,7728 | 0,7859 | −0,0518 | 15/15, **AUDITED** |
+| drop53 | `dangthiet/…s42fg…r37-v3` | 0,8138 | 0,8358 | −0,0108 | 15/15, **AUDITED** |
+| m4b (control) | `annhannh331/…s42xa…r22-v1` | **0,8246** | **0,8413** | — | 15/15, **AUDITED** |
+
+Mỗi artifact mới: 88 file lọc, đủ 15 prediction + marker, weights round6/15, config/result/log/source;
+executed source khớp notebook push, input/source/data fingerprint khớp, weights strict-load + finite, 180 lượt
+prediction→confusion→10 metric khớp. `drop53` checkpoint rebuild đúng `n_features=53,input_pad=1`.
+Kết luận mô tả một seed: bỏ vật lý 13 feature tốt hơn full66 nhưng vẫn thấp hơn đặt 0 m4b 0,0108 macro-F1 private.

@@ -275,6 +275,14 @@ Bài học riêng còn dùng ở [docs/lessons](docs/lessons/README.md); bằng 
 
 - Train/partition đã z-score, test raw áp scaler đúng một lần. Dữ liệu sắp theo lớp: sample ngẫu nhiên seeded,
   không prefix tùy tiện. Không chia lại partition hoặc dùng official test chọn HP/round.
+- **Arm bỏ vật lý feature phải đi qua cùng transform ở train, compile probe và eval.** Guard cũ chỉ kiểm `len(zero)` nên
+  `drop53` vẫn đưa tensor 66 cột vào model 53 cột trong train/compile/eval; r32/r33 frozen source vì vậy không hợp lệ cho
+  arm drop53. Sửa train/eval/`compile_preflight` vẫn chưa đủ: `compile_extra` của frozen teacher/private cũng phải gọi cùng
+  `mask()` trước eager/compiled equivalence gate; traceback r35 main dừng tại DAGSNet `input_features` đã bắt chỗ sót này.
+  Mọi nhánh tạo input model phải có regression riêng; static audit tổng quát không thay runtime GPU smoke.
+- **Centralized pooled epoch cần AMP/step smoke riêng.** Cả full66/drop53/m4b r37 đều qua fixture và compile preflight nhưng dừng
+  round 1 tại cùng guard `applied > 0 and skipped <= 16` trong `centralized_epoch`, 0 epoch commit. Đây là lỗi chung đường train
+  centralized, không phải feature transform; không dùng ba kết quả và không rerun nguyên trạng trước khi đo skips/non-finite theo batch.
 - Holdout ngẫu nhiên theo dòng lạc quan hơn temporal/receiver-group. Receiver noise/profile và Sybil first-session
   là shortcut; benign từ runSybil có source bias. [Dataset](knowledge/dataset.md).
 - positionMirroring chưa chạm trần thông tin; Gaussian/DML private chưa học được không có nghĩa dữ liệu vô ích.

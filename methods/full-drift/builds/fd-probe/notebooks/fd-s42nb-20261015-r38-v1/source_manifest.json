@@ -1,0 +1,14 @@
+{
+  "inputs": "a321f3ebcff1938441bea5fa72d28c8f02deb4d53cf63b9bca80d6aa42ade813",
+  "fd": "294d8dd286d6f6846789392da4a9e2018c2069da167c76c11721bd4a7fe96e61",
+  "queues": {
+    "workers": 1,
+    "arms": [
+      "fd_centralized_drop53:15"
+    ],
+    "fast": true,
+    "holdout_only": true
+  },
+  "session_hours": 11.5,
+  "seed": 42
+}

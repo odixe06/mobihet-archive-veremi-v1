@@ -6,6 +6,7 @@ wait until ready, then verify every file name over all listing pages (sizes and 
 import json
 import os
 from pathlib import Path
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -20,11 +21,13 @@ def main():
     owner = dataset.split('/')[0]
     files = {p.name: p.stat().st_size for p in stage.iterdir() if p.is_file() and p.name != 'dataset-metadata.json'}
     assert files and not any(p.is_dir() for p in stage.iterdir()), 'flat stage expected'
-    env = dict(os.environ, PATH=f'{Path(sys.executable).parent}:{os.environ.get("PATH", "")}')   # kaggle CLI of this interpreter's env
+    env = dict(os.environ, PATH=f'{Path(sys.executable).parent}{os.pathsep}{os.environ.get("PATH", "")}')   # kaggle CLI of this interpreter's env
     kg = lambda *args: subprocess.run([sys.executable, str(HELPER), owner, '--', 'kaggle', *args], capture_output=True, text=True, env=env)
     with tempfile.TemporaryDirectory() as tmp:   # per-owner metadata without touching the shared stage
         work = Path(tmp)
-        for name in files: (work / name).symlink_to((stage / name).resolve())
+        for name in files:
+            try: (work / name).symlink_to((stage / name).resolve())
+            except OSError: shutil.copyfile(stage / name, work / name)   # Windows without Developer Mode
         (work / 'dataset-metadata.json').write_text(json.dumps(dict(id=dataset, title=dataset.split('/')[1], licenses=[dict(name='CC0-1.0')])))
         if 'ready' not in kg('datasets', 'status', dataset).stdout:
             created = kg('datasets', 'create', '-p', str(work), '-q', '-t')

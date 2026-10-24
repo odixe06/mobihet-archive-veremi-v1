@@ -10,10 +10,14 @@ The shared proxy is stored as one prediction row (one model after aggregation) a
 """
 import argparse
 import ast
-import fcntl
+try:
+    import fcntl
+except ImportError:  # Windows: current collector is intentionally run one session at a time.
+    fcntl = None
 import fnmatch
 import hashlib
 import json
+import os
 from pathlib import Path
 import subprocess
 import sys
@@ -23,11 +27,12 @@ import torch
 
 BASE = Path(__file__).resolve().parents[1]
 ROOT = BASE.parents[3]
-sys.path.insert(0, str(ROOT))
+sys.path.insert(0, str(ROOT / '.compat'))
 from mh.dagsnet import build_model, CFG
 from mh.metrics import METRIC_KEYS, metrics_from_confusion
 
 HELPER = ROOT / '.agents/skills/kaggle-training-notebook/scripts'
+KAGGLE_PYTHON = os.environ.get('KAGGLE_PYTHON', sys.executable)
 PATTERN = (r'^(source/|runs/fd_summary\.json|runs/[^/]+/(complete/|config\.json|result\.json|metrics\.csv|log\.txt|worker[0-9]+\.log|'
            r'predictions/|weights/round_0(06|15|50)\.pt))')   # last epoch of 6-, 15- and 50-epoch arms
 FINAL_PATTERN = r'^(source/|runs/fd_summary\.json|runs/[^/]+/(complete/|config\.json|runtime\.json|result\.json|metrics\.csv|log\.txt|worker[0-9]+\.log|predictions/|weights/|resume/))'
@@ -61,10 +66,12 @@ def audit_arm(run):
             if cfg['config'].get('final'):
                 assert len(w['private']) == len(w['ema_private']) == K and len(w['proxy']) == 1
                 assert w['architecture'] == dict(CFG, n_features=66, num_classes=16)
-            model = build_model(dict(CFG, n_features=66, num_classes=16), latent=True)
+            architecture = w.get('architecture', dict(CFG, n_features=66, num_classes=16))
+            model = build_model(architecture, latent=True)
             for sd in w['private'] + w['proxy'] + w['ema_private']:
                 model.load_state_dict(sd, strict=True)
-                assert sum(p.numel() for p in model.parameters()) == 395024
+                if architecture.get('n_features', 66) == 66:
+                    assert sum(p.numel() for p in model.parameters()) == 395024
                 assert all(torch.isfinite(v).all() for v in sd.values() if v.is_floating_point())
             kept.append(row['round'])
         if 'resume_sha' in row and cfg['config'].get('final'):
@@ -114,29 +121,35 @@ def collect(rid, stage_tag='20261015'):
     if marker.exists():
         return json.loads(marker.read_text())
     meta = json.loads((folder / 'kernel-metadata.json').read_text())
-    prefix = [sys.executable, str(HELPER / 'kaggle_as.py'), meta['id'].split('/')[0], '--']
+    prefix = [KAGGLE_PYTHON, str(HELPER / 'kaggle_as.py'), meta['id'].split('/')[0], '--']
     status = subprocess.run(prefix + ['kaggle', 'kernels', 'status', meta['id']], check=True, capture_output=True, text=True)
     print(status.stdout.strip(), flush=True)
     if not any(f'KernelWorkerStatus.{s}' in status.stdout for s in ('COMPLETE', 'ERROR')):
         return None
     final = json.loads((folder / 'source_manifest.json').read_text()).get('queues', {})
     final = isinstance(final, dict) and final.get('final', False)
-    subprocess.run(prefix + [sys.executable, str(HELPER / 'pull_kernel_output.py'), meta['id'], '-p', str(dest), '-j', JOBS,
+    subprocess.run(prefix + [KAGGLE_PYTHON, str(HELPER / 'pull_kernel_output.py'), meta['id'], '-p', str(dest), '-j', JOBS,
                              '--pattern', FINAL_PATTERN if final else PATTERN], check=True)
     private = BASE / 'private_push' / rid; executed = private / 'executed.ipynb'
     version = str(PUSH_VERSION.get(rid, 1))   # ma: v1 cancelled while queued (never ran), same notebook re-pushed as v2
-    subprocess.run(prefix + [sys.executable, str(HELPER / 'download_executed_notebook.py'), meta['id'], '--version', version,
+    subprocess.run(prefix + [KAGGLE_PYTHON, str(HELPER / 'download_executed_notebook.py'), meta['id'], '--version', version,
                              '--output', str(executed)], check=True, umask=0o077)
     executed.chmod(0o600)
     pushed = nbformat.read(private / meta['code_file'], as_version=4)
     reference = nbformat.read(folder / meta['code_file'], as_version=4)
-    key = next(n.value.value for n in ast.parse(pushed.cells[1].source).body if isinstance(n, ast.Assign)
-               and any(isinstance(t, ast.Name) and t.id == '_INLINE_WANDB_KEY' for t in n.targets))
-    actual = nbformat.reads(executed.read_text().replace(key, '[REDACTED]'), as_version=4)
+    keys = [n.value.value for n in ast.parse(pushed.cells[1].source).body if isinstance(n, ast.Assign)
+            and isinstance(n.value, ast.Constant) and isinstance(n.value.value, str)
+            and any(isinstance(t, ast.Name) and t.id == '_INLINE_WANDB_KEY' for t in n.targets)]
+    key = keys[0] if keys else None
+    actual_text = executed.read_text()
+    if key:
+        actual_text = actual_text.replace(key, '[REDACTED]')
+    actual = nbformat.reads(actual_text, as_version=4)
     assert len(actual.cells) == len(reference.cells)
     for i, c in enumerate(actual.cells):
         if c.cell_type == 'code':
-            assert c.source == pushed.cells[i].source.replace(key, '[REDACTED]'), ('executed source drift', i)
+            expected = pushed.cells[i].source.replace(key, '[REDACTED]') if key else pushed.cells[i].source
+            assert c.source == expected, ('executed source drift', i)
     actual.cells[1].source = reference.cells[1].source; actual.metadata['credential_cell_redacted'] = True
     nbformat.write(actual, folder / 'executed.redacted.ipynb')
     stage = BASE / f'artifacts/input/fd-src-{stage_tag}'
@@ -147,10 +160,11 @@ def collect(rid, stage_tag='20261015'):
     assert data['source_rows'] == 43045415 and data['test_rows'] == 10761343 and data['group_overlap'] == 0
     assert data['protocol'].startswith('final: every train80%' if final else 'temporal2% whole partition') and data['train_cap'] is None
     logs = ''.join(v.get('data', '') for v in json.loads((dest / f'mobihet-{rid}.log').read_text()))
-    assert key not in logs
+    assert not key or key not in logs
     # pulls may run in parallel; the audit holds ~4GB (ep6 test predictions), so audits take one shared lock
-    with (ROOT / '.compat/papers/.artifact-verification.lock').open('a') as lock:
-        fcntl.flock(lock, fcntl.LOCK_EX)
+    with (ROOT / '.compat/.artifact-verification.lock').open('a') as lock:
+        if fcntl:
+            fcntl.flock(lock, fcntl.LOCK_EX)
         audits = [audit_arm(run) for run in sorted((dest / 'runs').glob('fd_*_s4[23]*'))
                   if (run / 'complete').exists() and list((run / 'complete').glob('round_*.json'))]
     summary = dest / 'runs/fd_summary.json'
@@ -196,6 +210,8 @@ if __name__ == '__main__':
     sessions += [('fd-s43ya-20261015-r23-v2', '20261015-r23')]   # ya-v1 stopped by owner (slow host, prepare 9929s)
     sessions += [(p.name, tag) for tag in ('20261015-r24', '20261015-r25', '20261015-r28', '20261015-r30', '20261015-r31')
                  for p in sorted((BASE / 'notebooks').glob(f'fd-s4[23]*-{tag}-*')) if (p / 'source_manifest.json').exists()]
+    sessions += [('fd-s42fa-20261015-r32-v1', '20261015-r32')]
+    sessions += [('fd-s42fg-20261015-r37-v3', '20261015-r37')]
     if args.only != '*':
         selected = [rid for rid, tag in sessions if fnmatch.fnmatch(rid, args.only)]
         assert selected, ('unknown session filter', args.only)

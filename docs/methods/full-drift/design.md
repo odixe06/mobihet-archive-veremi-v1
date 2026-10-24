@@ -675,6 +675,106 @@ phần lớn round ⇒ thống kê chiếu không đủ khi backbone trôi; (b) 
 (c) benign < −0,005. Test local `--part r26` (arm cũ bit-exact với r30 hai epoch; cvp epoch 1 = control; byte 78.400 / 16.448; tổng client = moment
 chiếu gộp trực tiếp; cơ sở trực chuẩn, chứa head; fit 0 bước trả head snapshot) và `--part par` (compiled, 1 vs 2 worker) **PASS**.
 
+## Kiểm chứng m4b trên recipe hiện hành — build r32/r37 (owner 24–25/10; đã audit)
+
+Mục tiêu: tách tác động của 13 feature m4b khỏi toàn bộ recipe đã chọn
+`fd_dml_m4b_gpool_q3_frz_gkd_la_kdpx_zl`. Giữ seed 42, `--fast`, `--workers 2`, epoch 1→15,
+FullDrift internal-holdout fixture và chỉ chấm `group` + `old`; không chấm official test20%, không dùng protocol `--final`.
+
+| session | arm | input model |
+|---|---|---|
+| fa | `fd_dml_full66_gpool_q3_frz_gkd_la_kdpx_zl` | đủ 66 feature, không mask |
+| fb | `fd_dml_drop53_gpool_q3_frz_gkd_la_kdpx_zl` | bỏ đúng `BLOCK + POSITION` (13 cột), model nhận 53 feature |
+| control đã có | `fd_dml_m4b_gpool_q3_frz_gkd_la_kdpx_zl` | 66 feature, 13 cột đặt 0 |
+
+DAGSNet cần số chiều chia hết cho `patch_len=6`; arm drop53 pad một số 0 **sau input model** để reshape 54 = 9×6.
+Số pad không phải feature dữ liệu, không có tham số, không thay đổi 53 chiều đầu vào. Drop53 làm trục vị trí từ 11 còn 9;
+đây là hệ quả trực tiếp của yêu cầu bỏ vật lý 13 feature. Checkpoint ghi `n_features=53,input_pad=1`; fast evaluator dựng cùng layout.
+
+Kết quả hợp lệ: `fa` full66 r32-v1 và `fg` drop53 r37-v3 đều COMPLETE, pull + audit 25/10; `fb` r32 và `fg` r35
+không hợp lệ do thiếu transform ở train/compile/eval rồi `compile_extra`. Artifact mới giữ cùng pattern với control m4b `xa`:
+15 prediction/marker, weights round6/15, config/result/log/source và `AUDITED.json`. [Số liệu](results.md#kiểm-chứng-feature-trên-recipe-hiện-hành--seed42-ep15-audit-2510).
+
+## Kiểm chứng feature trên FedAvg — build r33 (owner 24/10; chưa chạy)
+
+Port theo FedAvg chuẩn sẵn trong harness hiện hành: một shared DAGSNet, mọi client tham gia, một local epoch rồi trung bình
+tham số; AdamW, batch 512, seed 42, cosine T50 giữ nguyên. Chạy epoch 1→15, `--fast --workers 2 --holdout_only`, chỉ
+chấm `group` và `old`. Ba arm chỉ khác xử lý input:
+
+| session | arm | input |
+|---|---|---|
+| fc | `fd_fedavg_full66` | đủ 66 feature |
+| fd | `fd_fedavg_drop53` | bỏ vật lý đúng 13 cột; model nhận 53 rồi pad nội bộ 1 số 0 để reshape |
+| fe | `fd_fedavg_m4b` | giữ 66 feature; đúng 13 cột đặt 0 trong train và eval |
+
+FedAvg dựng shared model từ `run.architecture`; full66/m4b giữ cấu hình 66, drop53 ghi
+`n_features=53,input_pad=1`. Cùng seed khởi tạo `seed+1000`, aggregation, optimizer, data và evaluator; không tái dùng
+kết quả FedAvg recipe cũ vì chúng không cùng internal-holdout contract.
+
+Cập nhật 24/10: `fc` full66 và `fe` m4b đã rebuild thành `r37-v1` bằng wrapper không W&B và source r37 đã sửa; audit
+AST/metadata/source SHA PASS. Cả hai đã push lên `hoangdang1711` sau khi cb/cc COMPLETE; kiểm ngay sau push đều RUNNING.
+`fh` drop53 hợp lệ dùng r37-v3 trên `dangthiet`.
+
+## Kiểm chứng feature trên 3 phương pháp cũ + centralized — build r34 (owner 24/10; đã build, chưa push)
+
+Giữ đúng contract r33: seed42, 20 client, batch512, cosine T50, round 1→15, `--fast --holdout_only`, chỉ chấm
+`group` + `old`, không chạm official test20%. Mỗi phương pháp có `full66`, `drop53`, `m4b`; khác nhau duy nhất ở xử lý input.
+FedProx/FedTGP/CanPerFL dùng `--workers 2`; centralized dùng một process/GPU vì chỉ có một optimizer/model pooled.
+
+| phương pháp | sessions | recipe khóa |
+|---|---|---|
+| FedProx | pa / pb / pc | FedAvg + proximal `μ=0.01` về snapshot đầu round |
+| FedTGP | ta / tb / tc | prototype 544-d, client MSE weight 1, server ACL 100 bước lr1e-3, `τ=100`; báo cả shared-head và nearest-prototype |
+| CanPerFL | ca / cb / cc | FedAvg 15 round; sau cùng Fed-FN chỉ fine-tune head 10 epoch, tối đa 30.000 dòng/client |
+| Centralized | na / nb / nc | một shared DAGSNet trên pool train; một epoch pooled mỗi round, cùng AdamW/LR/batch/clip hiện hành |
+
+Notebook: `fd-s42{pa,pb,pc,ta,tb,tc,ca,cb,cc,na,nb,nc}-20261015-r34-v1`. Source dataset dự kiến:
+`hoangdang1711/mobihet-fulldrift-src-20261015-r34`. Tất cả notebook private, dùng Kaggle secret `wandb_key`, không nhúng key.
+Build mới chỉ qua compile/static/schema/hash audit; máy local không có PyTorch/GPU nên chưa có runtime smoke hay kết quả khoa học.
+
+## Sửa drop53 — build r35 (owner 24/10)
+
+Không sửa frozen r32/r33. Rebuild đúng hai arm bị ảnh hưởng bằng source đã áp transform 66→53 ở train, compile probe và eval:
+
+| session | arm | trạng thái |
+|---|---|---|
+| fg | `fd_dml_drop53_gpool_q3_frz_gkd_la_kdpx_zl` | source/notebook audit PASS; push v1 account `hoangdang1711` 24/10 11:34Z |
+| fh | `fd_fedavg_drop53` | source/notebook audit PASS; đã build, chưa push |
+
+Cả hai giữ seed42, round1→15, `--fast --workers 2 --holdout_only`; source private dùng chung
+`hoangdang1711/mobihet-fulldrift-src-20261015-r35`, 49 file đã verify sau upload.
+
+## Build r37 — bỏ W&B + sửa `compile_extra` drop53 (owner 24/10; main drop53 đã audit)
+
+`r35` main drop53 dừng trong frozen-teacher compile gate: model 53 chiều nhưng `compile_extra()` lấy thẳng tensor 66 chiều.
+`r37` áp đúng transform `mask()` trước mọi eager/compiled extra gate. Notebook không cài/import/login W&B, chỉ ghi Kaggle log và
+artifact; source private đã upload/verify 49 file riêng cho `dangthiet` và `hoangdv1711`.
+
+Wrapper v1/v2 không hợp lệ do xóa cell W&B kéo theo import ẩn `os/subprocess/sys`; v3 import runtime độc lập và là bản đầu tiên
+được dùng. Bốn kernel v3 đã push: `fg` main-drop53, `fh` FedAvg-drop53 trên `dangthiet`; `pa` FedProx-full66, `pb`
+FedProx-drop53 trên `hoangdv1711`. Cả bốn giữ seed42, round1→15, `--fast --holdout_only`; kết quả chỉ hợp lệ sau collect/audit.
+
+`fg` r37-v3 COMPLETE và audit 25/10: 15/15 round, 180 metric checks, weights round6/15 strict-load + finite;
+đây là kết quả drop53 duy nhất được dùng cho main recipe.
+
+Mười arm còn lại đã rebuild `r37-v1`, chưa push: `pc`; `ta/tb/tc`; `ca/cb/cc`; `na/nb/nc`. Audit 24/10 PASS:
+không chuỗi/flag W&B, code-cell AST hợp lệ, metadata private + 2×T4, đúng workers (FL=2, centralized=1), source-stage `fd.py`
+trùng SHA live và chứa fix `compile_extra`. Metadata owner hiện là placeholder `hoangdang1711`; khi chia account phải generate suffix mới
+với `--owner`, upload cùng source r37 vào đúng owner rồi mới push.
+
+Phân lô `r37-v4` 24/10: `hoangdangnhi` = pc+na, `phamquang0606` = ta+nb, `qwerasdf` = tb+nc,
+`ttalgies` = tc+ca, `hoangdang1711` = cb+cc. Owner sau đó xác nhận account đúng là `qwerasdf3004`; build v5 tb+nc,
+source r37 verify đủ 49 file và push thành công. Như vậy đủ 10/10 arm đã push: 8 arm v4, tb+nc v5; mọi owner dùng
+source đã verify, không W&B. qwerasdf cũ (`slug/hashlink null`) không dùng.
+
+Centralized r37 cả ba mode lỗi round 1 sau compile: pooled scaler dùng dữ liệu 20 client nhưng guard giữ `skipped <= 16`
+của một client; đồng thời `steps` bỏ sót batch ở ranh giới chunk. Recovery r38 đếm `batches` thật và dùng ngân sách tương đương
+Fed path `skip_budget = 16*K` (K=20), không đổi model/loss/optimizer/update. na/nb/nc r38-v1 đã audit, source riêng từng owner
+ready/49 file và push 24/10; cả ba RUNNING, chờ log round 1 xác nhận `CENTRALIZED AMP` + commit.
+
+Startup check 25/10: nc dựng xong fixture, start pooled train và còn RUNNING sau hơn thời lượng 11,3 phút mà r37 chết;
+na/nb cũng RUNNING. Điều này xác nhận false-fail cũ không tái diễn tại cùng mốc; kết quả vẫn pending tới COMPLETE + collect/audit.
+
 ## Run cuối 50 epoch — chế độ `--final` (owner 19/10; cài ~09:30Z, chưa chạy)
 
 Protocol §3: train **mọi dòng train80%** (fixture `papers/final/fixture`, `fd_prepare.prepare_fd(final=True)` = `mh.prepare(holdout=False)`, như

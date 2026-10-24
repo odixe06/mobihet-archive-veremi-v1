@@ -110,7 +110,7 @@ def main():
     p = argparse.ArgumentParser(); p.add_argument('--work', required=True)
     p.add_argument('--manifest', help='data_manifest.json pulled from a Kaggle setup: exercises the production gate')
     # Owner RAM limit: run 'checks' and 'smoke' as separate invocations so only one CUDA process is alive at a time.
-    p.add_argument('--part', choices=('checks', 'smoke', 'r8', 'r9', 'r11', 'r12', 'r13', 'r15', 'r17', 'r18', 'r20', 'r21', 'r22', 'r23', 'r24', 'r25', 'r26', 'final', 'resume', 'fast', 'parent', 'par'), required=True)
+    p.add_argument('--part', choices=('checks', 'smoke', 'r8', 'r9', 'r11', 'r12', 'r13', 'r15', 'r17', 'r18', 'r20', 'r21', 'r22', 'r23', 'r24', 'r25', 'r26', 'r32', 'r33', 'r34', 'final', 'resume', 'fast', 'parent', 'par'), required=True)
     p.add_argument('--arms', help='smoke only these comma-separated arms')
     a = p.parse_args()
     work = Path(a.work); proj = work / 'proj'
@@ -160,6 +160,12 @@ def main():
         return round25(fd, work)
     if a.part == 'r26':
         return round26(fd, work)
+    if a.part == 'r32':
+        return round32(fd)
+    if a.part == 'r33':
+        return round33(fd)
+    if a.part == 'r34':
+        return round34(fd)
     if a.part == 'resume':
         return resume(proj, work)
     if a.part == 'final':
@@ -712,6 +718,72 @@ def round26(fd, work):
     head = R.cv_calibrate(stats, state, 2); hw = head['head.5.weight'].double()
     assert torch.isfinite(hw).all() and torch.allclose(hw @ basis @ basis.T, hw, atol=1e-5) and not torch.allclose(hw, w, atol=1e-5)
     print('zero-step cvp fit returns the snapshot head; the fitted head lies in the projection and differs', flush=True)
+
+
+def round32(fd):
+    """m4b validation: full66 stays 66; drop53 removes BLOCK+POSITION and pads only inside DAGSNet."""
+    import inspect
+    import torch
+    names = [*fd.BLOCK, *fd.POSITION, *[f'keep_{i}' for i in range(53)]]
+    x = torch.arange(2 * 66, dtype=torch.float32).view(2, 66)
+    R = fd.Run.__new__(fd.Run); R.drop53 = True
+    dropped = set(fd.BLOCK + fd.POSITION)
+    R.keep = torch.tensor([i for i, name in enumerate(names) if name not in dropped])
+    R.zero = torch.empty(0, dtype=torch.long); R.zero_cols = torch.zeros(66, dtype=torch.bool)
+    z = R.mask(x)
+    assert z.shape == (2, 53) and torch.equal(z, x[:, 13:])
+    cfg = dict(fd.P.CFG, n_features=53, num_classes=fd.P.C, input_pad=1)
+    model = fd.P.build_model(cfg, latent=True).eval()
+    with torch.no_grad(): logits, latent = model(z)
+    assert logits.shape == (2, 16) and latent.shape == (2, 256)
+    assert model.input_features == 53 and model.input_pad == 1 and model.k == 9
+    assert sum(p.numel() for p in model.parameters()) == 395024
+    assert 'fd_dml_full66_gpool_q3_frz_gkd_la_kdpx_zl' in fd.ARMS
+    assert 'fd_dml_drop53_gpool_q3_frz_gkd_la_kdpx_zl' in fd.ARMS
+    assert 'if self.drop53 or len(self.zero): x = self.mask(x)' in inspect.getsource(fd.Run.compile_extra)
+    print('round 32: full66 registered; drop53 removes 13 inputs; DAGSNet sees 53 then pads to 9x6; forward PASS', flush=True)
+
+
+def round33(fd):
+    """FedAvg feature arms share algorithm/init and differ only in the declared input transform."""
+    import torch
+    arms = ('fd_fedavg_full66', 'fd_fedavg_drop53', 'fd_fedavg_m4b')
+    assert all(arm in fd.ARMS for arm in arms)
+    names = [*fd.BLOCK, *fd.POSITION, *[f'keep_{i}' for i in range(53)]]
+    x = torch.arange(2 * 66, dtype=torch.float32).view(2, 66)
+    dropped = set(fd.BLOCK + fd.POSITION)
+    keep = torch.tensor([i for i, name in enumerate(names) if name not in dropped])
+
+    def transform(arm):
+        R = fd.Run.__new__(fd.Run); tokens = arm.split('_'); R.drop53 = 'drop53' in tokens
+        R.keep = keep; hidden = fd.BLOCK + fd.POSITION if 'm4b' in tokens else []
+        R.zero = torch.tensor([names.index(name) for name in hidden], dtype=torch.long)
+        R.zero_cols = torch.zeros(66, dtype=torch.bool); R.zero_cols[R.zero] = True
+        return R.mask(x)
+
+    full, drop, mask = map(transform, arms)
+    assert torch.equal(full, x) and drop.shape == (2, 53) and torch.equal(drop, x[:, 13:])
+    assert mask.shape == x.shape and torch.count_nonzero(mask[:, :13]) == 0 and torch.equal(mask[:, 13:], x[:, 13:])
+    cfg = dict(fd.P.CFG, n_features=53, num_classes=fd.P.C, input_pad=1)
+    model = fd.P.build_model(cfg, latent=True).eval()
+    with torch.no_grad(): logits, latent = model(drop)
+    assert logits.shape == (2, 16) and latent.shape == (2, 256) and model.input_features == 53 and model.input_pad == 1
+    print('round 33: FedAvg full66/drop53/m4b transforms and drop53 forward PASS', flush=True)
+
+
+def round34(fd):
+    """Four remaining legacy methods expose exactly three synchronized feature arms."""
+    import inspect
+    methods = ('fedprox', 'fedtgp', 'canperfl', 'centralized')
+    modes = ('full66', 'drop53', 'm4b')
+    expected = {f'fd_{method}_{mode}' for method in methods for mode in modes}
+    assert expected <= set(fd.ARMS) and len(expected) == 12
+    assert fd.MU == .01 and fd.TGP_DIM == 544 and fd.TGP_LAMBDA == 1.0
+    assert (fd.TGP_STEPS, fd.TGP_LR, fd.TGP_TAU) == (100, 1e-3, 100.)
+    assert (fd.PERSONAL_EPOCHS, fd.PERSONAL_MAX_ROWS) == (10, 30_000)
+    centralized = inspect.getsource(fd.Run.centralized_epoch)
+    assert 'batches += 1' in centralized and 'skip_budget = 16 * self.K' in centralized
+    print('round 34: 12 arms registered; FedProx/FedTGP/CanPerFL constants locked; centralized registered', flush=True)
 
 
 def resume(proj, work):

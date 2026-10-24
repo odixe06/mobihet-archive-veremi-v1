@@ -9,7 +9,7 @@ Xe học IDS cộng tác qua RSU với giao tiếp hữu hạn; private model đ
 Giữ 66 feature, dataset/partition/scaler gốc; mọi model đang chạy là DAGSNet. Không raw/perturbed record,
 per-record activation/gradient rời client. Heterogeneous R2 thực nghiệm và contact/deadline R1 chưa chứng minh.
 
-## Trạng thái và quyết định hiện hành — 23/10/2026 ~07:30Z
+## Trạng thái và quyết định hiện hành — 25/10/2026 00:20+07 (main feature artifacts; job khác theo handoff)
 
 - **Bàn giao sống duy nhất:** [continue](docs/operations/continue.md) — đang chạy gì, bước tiếp, lệnh, việc tay. Sửa tại chỗ;
   snapshot cũ vào [archive/operations](docs/archive/operations/README.md). Cách đọc/ghi context: skill `project-context`.
@@ -18,6 +18,8 @@ per-record activation/gradient rời client. Heterogeneous R2 thực nghiệm v�
 - Phương pháp chốt: `gkd + la + kdpx`, proxy q3_zl (PASS seed42/43). [Kết quả/cổng](docs/methods/full-drift/results.md), [thiết kế](docs/methods/full-drift/design.md).
 - **Run cuối seed42 xong:** 6 chuỗi (q3_zl la_kdpx + đối chứng gkd × 20/50/100 client) × 50 round, chấm toàn test20 mỗi round, headline r50,
   đã audit — [report](docs/methods/full-drift/results/final/report.md), [VERIFIED](docs/methods/full-drift/results/final/VERIFIED.json). Không repull/re-audit.
+- **Kiểm chứng feature main seed42 ep15:** full66 `fa` và drop53 sửa `fg` đã pull + audit 25/10; control m4b `xa` đã audit trước đó.
+  Macro-F1 private/head/group: 0,7728 / 0,8138 / 0,8246. [Kết quả và provenance](docs/methods/full-drift/results.md#kiểm-chứng-feature-trên-recipe-hiện-hành--seed42-ep15-audit-2510).
 - **Nghiên cứu synthetic (khoảng private ↔ proxy r50 ~0,024–0,028):** vòng 24 `xo` FAIL, vòng 25 `cvl` FAIL, P23–31 (teacher Project48 PASS nhưng
   transfer FAIL; joint carrier FAIL). **P32 22/10:** copula × Project48 +0,0024 (FAIL +0,005) nhưng worst-client +0,022; lợi support thật cần
   4 nhóm feature cùng thật (`snd_kin`, `sess`, `geo`, `prof`). **P33/P33b 22/10 (cách client học):** 71 % lợi support thật là recall posMirror +

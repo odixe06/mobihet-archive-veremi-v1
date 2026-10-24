@@ -1,0 +1,14 @@
+{
+  "inputs": "538cd222607827baccd42e95d823d39882b6b3569c08c5b10edc76a2e4b85cf2",
+  "fd": "e8943dfe8abd3f200a8eb0fc27e0badba1385ab8ba94e116f06fb5db40905409",
+  "queues": {
+    "workers": 2,
+    "arms": [
+      "fd_fedavg_drop53:15"
+    ],
+    "fast": true,
+    "holdout_only": true
+  },
+  "session_hours": 7.0,
+  "seed": 42
+}

@@ -6,6 +6,13 @@ Bài học ở đây là quy tắc rút ra khi chạy thí nghiệm và hạ t�
 
 ## Kaggle, notebook và đường pipeline
 
+- **24/10 bỏ W&B khỏi notebook:** cell W&B cũ đồng thời import `os`, `subprocess`, `sys`; xóa nguyên cell làm setup lần lượt
+  lỗi `NameError: os` rồi `NameError: sys`. Import runtime của notebook phải độc lập với integration tùy chọn; sau khi bỏ
+  dependency, audit tên/import bằng execution hoặc startup log, không chỉ AST parse. Frozen source giữ tag; wrapper-only fix tăng suffix.
+- **24/10 Windows multi-account:** mỗi lệnh `kaggle_as.py` với OAuth snapshot mint access token mới; poll dồn nhiều lệnh có thể chạm
+  HTTP 429 ở `GenerateAccessToken` dù kernel vẫn chạy. Gộp status/log vào ít lần gọi, backoff thay vì poll liên tục; 429 không phải
+  trạng thái kernel. Token cache trong snapshot không thay thế được token mới nếu đã hết hạn.
+
 - **20/10 final startup crash:** test `--smoke --final` vẫn đọc pilot fixture, không chứng minh đường production final-only.
   Gaussian legacy còn hash cứng pilot manifest ⇒ r24 zc/zi crash trước round1. Test bắt buộc: không tồn tại pilot,
   Gaussian đọc final manifest; đối chiếu context pilot với legacy. Notebook phải lan truyền exit code subprocess,
@@ -23,6 +30,10 @@ Bài học ở đây là quy tắc rút ra khi chạy thí nghiệm và hạ t�
 
 ## Collect, poll và máy local
 
+- **25/10 collector phải theo layout và config của artifact, không theo giả định build cũ:** `collect_fd.py` cũ hard-code package
+  ở repo root, DAGSNet 66 feature và cell W&B bắt buộc; vì vậy không thể audit r37 W&B-free/drop53 dù run hợp lệ. Import package
+  từ `.compat`, cho W&B key optional, rebuild từ `weights['architecture']`, và chạy Kaggle client/PyTorch bằng đúng interpreter riêng.
+  Thiếu `PUSHED` chỉ được dựng lại sau status account-scoped; vẫn bắt buộc tải executed notebook và so source.
 - Máy local ngủ (WSL) làm poll nền dừng, Kaggle vẫn chạy. Sau khi thức đừng để watcher mở collector cho mọi session cùng
   lúc (mỗi audit đỉnh ~4 GB): chia nhóm session rời nhau cho 2–4 tiến trình `collect_fd.py --only`, pull ~20 s/session.
 - Collector có thể thoát 0 mà chưa pull nếu thiếu `PUSHED`. Kiểm `AUDITED.json` và completion cụ thể; chỉ dựng lại marker sau khi

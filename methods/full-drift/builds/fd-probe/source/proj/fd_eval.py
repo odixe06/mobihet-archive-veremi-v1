@@ -33,7 +33,9 @@ def checked_weights(run, r):
     assert digest(path) == row['weights_sha'], 'weights sha'
     w = torch.load(path, map_location='cpu', weights_only=True)
     assert w['round'] == r and w['fingerprint'] == cfg['fingerprint']
-    assert w['architecture'] == dict(P.CFG, n_features=P.D, num_classes=P.C)
+    expected = dict(P.CFG, n_features=53, num_classes=P.C, input_pad=1) if 'drop53' in cfg['config']['arm'].split('_') else \
+               dict(P.CFG, n_features=P.D, num_classes=P.C)
+    assert w['architecture'] == expected
     return cfg, row, w
 
 

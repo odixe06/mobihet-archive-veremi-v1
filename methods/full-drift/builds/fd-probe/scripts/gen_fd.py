@@ -1,13 +1,12 @@
 """Generate FullDrift probe notebooks (per round plan) and the flat source dataset stage. Nothing is pushed here.
 
-Public notebook keeps an empty W&B key; the private_push copy (git-ignored, 0600) carries the owner's key.
+Generated notebooks use Kaggle logs and persisted artifacts only; W&B is disabled.
 
     python methods/full-drift/builds/fd-probe/scripts/gen_fd.py [--round r2] [--suffix v1]
 """
 import argparse
 import hashlib
 import json
-import netrc
 import os
 from pathlib import Path
 import shutil
@@ -176,30 +175,69 @@ PLANS['r30'] = [('khanhmay0304', 42, 'cl', {'workers': 2, 'arms': ['fd_dml_m4b_g
 # round-18 copula support (cop) — probe 36 frozen-head two-seed PASS vs the deployed method; s42 ep1-15 --fast vs xa (online gate +0.010).
 # minhtrit06 10.5h live at 14:40Z; odixeuit stays free for the owner's other project.
 PLANS['r31'] = [('minhtrit06', 42, 'cp', {'workers': 2, 'arms': ['fd_dml_m4b_gpool_q3_frz_gkd_la_kdpx_zl_cvp_cop:15'], 'fast': True}, 6.3)]
+# r32 validation requested 24/10: isolate m4b input handling under the selected recipe; internal holdouts only.
+PLANS['r32'] = [('odixeuit', 42, 'fa', {'workers': 2, 'arms': ['fd_dml_full66_gpool_q3_frz_gkd_la_kdpx_zl:15'],
+                                        'fast': True, 'holdout_only': True}, 7.0),
+                 ('khanhmay0304', 42, 'fb', {'workers': 2, 'arms': ['fd_dml_drop53_gpool_q3_frz_gkd_la_kdpx_zl:15'],
+                                             'fast': True, 'holdout_only': True}, 7.0)]
+# r33: FedAvg under the same r32 feature-input validation contract; one arm per notebook for isolated failure/retry.
+PLANS['r33'] = [('hoangdang1711', 42, session, {'workers': 2, 'arms': [f'{arm}:15'],
+                                                'fast': True, 'holdout_only': True}, 7.0)
+                 for session, arm in (('fc', 'fd_fedavg_full66'),
+                                      ('fd', 'fd_fedavg_drop53'),
+                                      ('fe', 'fd_fedavg_m4b'))]
+# r34: remaining legacy baselines under the exact r33 feature-input contract; one arm per private notebook.
+PLANS['r34'] = [
+    ('hoangdang1711', 42, session, {'workers': workers, 'arms': [f'{arm}:15'],
+                                    'fast': True, 'holdout_only': True}, hours)
+    for session, arm, workers, hours in (
+        ('pa', 'fd_fedprox_full66', 2, 7.0), ('pb', 'fd_fedprox_drop53', 2, 7.0), ('pc', 'fd_fedprox_m4b', 2, 7.0),
+        ('ta', 'fd_fedtgp_full66', 2, 7.0), ('tb', 'fd_fedtgp_drop53', 2, 7.0), ('tc', 'fd_fedtgp_m4b', 2, 7.0),
+        ('ca', 'fd_canperfl_full66', 2, 7.5), ('cb', 'fd_canperfl_drop53', 2, 7.5), ('cc', 'fd_canperfl_m4b', 2, 7.5),
+        ('na', 'fd_centralized_full66', 1, 11.5), ('nb', 'fd_centralized_drop53', 1, 11.5), ('nc', 'fd_centralized_m4b', 1, 11.5))]
+# r35: rebuild only the two drop53 notebooks invalidated by the r32/r33 transform bug; never mutate frozen tags.
+PLANS['r35'] = [('hoangdang1711', 42, session, {'workers': 2, 'arms': [f'{arm}:15'],
+                                                'fast': True, 'holdout_only': True}, 7.0)
+                 for session, arm in (('fg', 'fd_dml_drop53_gpool_q3_frz_gkd_la_kdpx_zl'),
+                                      ('fh', 'fd_fedavg_drop53'))]
+# r36: 14 remaining feature-validation arms, W&B removed. First four assigned to the two token-only accounts;
+# later sessions are generated account-by-account with --owner after quota/credentials exist.
+PLANS['r36'] = [
+    (owner, 42, session, {'workers': workers, 'arms': [f'{arm}:15'], 'fast': True, 'holdout_only': True}, hours)
+    for owner, session, arm, workers, hours in (
+        ('dangthiet', 'fg', 'fd_dml_drop53_gpool_q3_frz_gkd_la_kdpx_zl', 2, 7.0),
+        ('dangthiet', 'fh', 'fd_fedavg_drop53', 2, 7.0),
+        ('hoangdv1711', 'pa', 'fd_fedprox_full66', 2, 7.0),
+        ('hoangdv1711', 'pb', 'fd_fedprox_drop53', 2, 7.0),
+        ('hoangdang1711', 'pc', 'fd_fedprox_m4b', 2, 7.0),
+        ('hoangdang1711', 'ta', 'fd_fedtgp_full66', 2, 7.0),
+        ('hoangdang1711', 'tb', 'fd_fedtgp_drop53', 2, 7.0),
+        ('hoangdang1711', 'tc', 'fd_fedtgp_m4b', 2, 7.0),
+        ('hoangdang1711', 'ca', 'fd_canperfl_full66', 2, 7.5),
+        ('hoangdang1711', 'cb', 'fd_canperfl_drop53', 2, 7.5),
+        ('hoangdang1711', 'cc', 'fd_canperfl_m4b', 2, 7.5),
+        ('hoangdang1711', 'na', 'fd_centralized_full66', 1, 11.5),
+        ('hoangdang1711', 'nb', 'fd_centralized_drop53', 1, 11.5),
+        ('hoangdang1711', 'nc', 'fd_centralized_m4b', 1, 11.5))]
+# r37: compile-extra drop53 fix after the main-method traceback; all feature-validation arms use the W&B-free wrapper.
+PLANS['r37'] = PLANS['r36'] + [
+    ('hoangdang1711', 42, session, {'workers': 2, 'arms': [f'{arm}:15'], 'fast': True, 'holdout_only': True}, 7.0)
+    for session, arm in (('fc', 'fd_fedavg_full66'), ('fe', 'fd_fedavg_m4b'))]
+# r38: centralized-only recovery; pooled AMP guard equals the aggregate 16-skip/client budget and counts actual chunked batches.
+PLANS['r38'] = [
+    (owner, 42, session, {'workers': 1, 'arms': [f'{arm}:15'], 'fast': True, 'holdout_only': True}, 11.5)
+    for owner, session, arm in (
+        ('hoangdangnhi', 'na', 'fd_centralized_full66'),
+        ('phamquang0606', 'nb', 'fd_centralized_drop53'),
+        ('qwerasdf3004', 'nc', 'fd_centralized_m4b'))]
 
-WANDB = r'''import time
+RUNTIME_START = r'''import os,subprocess,sys,time
 SESSION_T0=time.monotonic()
-
-import os, subprocess, sys
-# 0.28.0: 0.29 needs opentelemetry-api>=1.43 and upgrades the image's 1.38 (pip conflict lines, google-adk/otel-sdk pinned)
-subprocess.run([sys.executable,'-m','pip','install','--quiet','--progress-bar','off','wandb==0.28.0'],check=True)
-import wandb
-_INLINE_WANDB_KEY = ""
-try:
-    from kaggle_secrets import UserSecretsClient
-    _wandb_key=_INLINE_WANDB_KEY or UserSecretsClient().get_secret('wandb_key')
-except Exception:
-    _wandb_key=_INLINE_WANDB_KEY
-assert _wandb_key, 'W&B key required before training'
-os.environ['WANDB_API_KEY']=_wandb_key   # env login: no key-in-code / anonymous / netrc warnings
-del _wandb_key
-assert wandb.login(verify=True)
-assert wandb.Api(timeout=30).default_entity, 'W&B online authentication failed'
-print('W&B authenticated online',flush=True)
+print('Kaggle logs and persisted output enabled',flush=True)
 '''
 
 SETUP = r'''
-import hashlib,json,shutil
+import hashlib,json,os,shutil
 from pathlib import Path
 os.environ['CUBLAS_WORKSPACE_CONFIG']=':4096:8'
 os.environ['TORCHINDUCTOR_COMPILE_THREADS']='1'
@@ -258,8 +296,8 @@ while active or any(pending.values()):
         item=pending[gpu].pop(0);arm,_,ep=item.partition(':');ep=int(ep or 6)
         folder=OUT/(f'{arm}_s{SEED}'+('' if ep==6 else f'_e{ep}'));folder.mkdir(parents=True,exist_ok=True)
         env=dict(os.environ,CUDA_VISIBLE_DEVICES=str(gpu),PYTHONPATH=f'{PROJ}:{WORK}',OMP_NUM_THREADS='1',MKL_NUM_THREADS='1',OPENBLAS_NUM_THREADS='1')
-        command=[sys.executable,str(PROJ/'fd.py'),'--arm',arm,'--seed',str(SEED),'--backend','compiled','--wandb_online',
-                 '--wandb_project','mobihet-fulldrift','--max_hours',str(round(remaining-.3,3)),'--out',str(OUT),'--stop_after',str(ep)]
+        command=[sys.executable,str(PROJ/'fd.py'),'--arm',arm,'--seed',str(SEED),'--backend','compiled',
+                 '--max_hours',str(round(remaining-.3,3)),'--out',str(OUT),'--stop_after',str(ep)]
         log=open(folder/'log.txt','a');proc=subprocess.Popen(command,cwd=WORK,env=env,stdout=log,stderr=subprocess.STDOUT)
         active[gpu]=(item,folder,proc,log,time.monotonic())
         print('start',item,SEED,'gpu',gpu,'remaining_h',round(remaining,2),flush=True)
@@ -290,9 +328,9 @@ for item in ARMS:
     folder=OUT/(f'{arm}_s{SEED}'+('' if ep==6 else f'_e{ep}'));folder.mkdir(parents=True,exist_ok=True)
     env=dict(os.environ,PYTHONPATH=f'{PROJ}:{WORK}',OMP_NUM_THREADS='1',MKL_NUM_THREADS='1',OPENBLAS_NUM_THREADS='1')
     env.pop('CUDA_VISIBLE_DEVICES',None)
-    command=[sys.executable,str(PROJ/'fd.py'),'--arm',arm,'--seed',str(SEED),'--backend','compiled','--wandb_online',
-             '--wandb_project','mobihet-fulldrift','--max_hours',str(round(remaining-.3,3)),'--out',str(OUT),'--stop_after',str(ep),
-             '--workers',str(WORKERS),'--clients',str(CLIENTS),'--batch',str(256 if CLIENTS==100 else 512)]+(['--parent',str(PARENT_DIR),'--parent_round',str(PARENT['round'])] if PARENT else [])+(['--fast'] if FAST else [])+(['--final'] if FINAL else [])+(['--defer_eval'] if DEFER_EVAL else [])+(['--session_rounds',str(SESSION_ROUNDS)] if SESSION_ROUNDS else [])
+    command=[sys.executable,str(PROJ/'fd.py'),'--arm',arm,'--seed',str(SEED),'--backend','compiled',
+             '--max_hours',str(round(remaining-.3,3)),'--out',str(OUT),'--stop_after',str(ep),
+             '--workers',str(WORKERS),'--clients',str(CLIENTS),'--batch',str(256 if CLIENTS==100 else 512)]+(['--parent',str(PARENT_DIR),'--parent_round',str(PARENT['round'])] if PARENT else [])+(['--fast'] if FAST else [])+(['--final'] if FINAL else [])+(['--defer_eval'] if DEFER_EVAL else [])+(['--holdout_only'] if HOLDOUT_ONLY else [])+(['--session_rounds',str(SESSION_ROUNDS)] if SESSION_ROUNDS else [])
     t=time.monotonic();log=open(folder/'log.txt','a')
     proc=subprocess.Popen(command,cwd=WORK,env=env,stdout=log,stderr=subprocess.STDOUT)
     print('start',item,SEED,'workers',WORKERS,'remaining_h',round(remaining,2),flush=True)
@@ -370,7 +408,6 @@ def main():
         for name, path in files.items(): shutil.copyfile(path, stage / name)
         inputs = {n: sha(stage / n) for n in sorted(files)}
         (stage / 'input_manifest.json').write_text(json.dumps(inputs, indent=1) + '\n')
-    secret = netrc.netrc().authenticators('api.wandb.ai')[2]
     for owner, seed, session, queues, hours in PLANS[args.round]:
         if args.sessions and session not in args.sessions.split(','): continue
         if args.owner: owner = args.owner
@@ -388,7 +425,8 @@ def main():
                 f'FIXTURE={fixture_manifest(clients) if final else None!r}\n')
         if isinstance(queues, dict):
             run = (f'SEED={seed}\nSESSION_HOURS={hours}\nWORKERS={queues["workers"]}\nARMS={queues["arms"]!r}\nFAST={queues.get("fast", False)!r}\n'
-                   f'DEFER_EVAL={queues.get("defer_eval", False)!r}\nSESSION_ROUNDS={queues.get("session_rounds")!r}\n' + RUN_POOL)
+                   f'DEFER_EVAL={queues.get("defer_eval", False)!r}\nHOLDOUT_ONLY={queues.get("holdout_only", False)!r}\n'
+                   f'SESSION_ROUNDS={queues.get("session_rounds")!r}\n' + RUN_POOL)
         else:
             run = f'SEED={seed}\nSESSION_HOURS={hours}\nQUEUES={queues!r}\n' + RUN
         cells = [nbformat.v4.new_markdown_cell(
@@ -396,8 +434,24 @@ def main():
                      'Full 100% train80% minus internal holdout (temporal2% + receiver-group5%), epochs 1-6 (or 1-15) of cosine T50. '
                      'Decisions on group holdout; official test once after the last epoch, descriptive. '
                      'Contract: docs/methods/full-drift/design.md'),
-                 nbformat.v4.new_code_cell(WANDB), nbformat.v4.new_code_cell(head + SETUP), nbformat.v4.new_code_cell(run)]
+                 nbformat.v4.new_code_cell(RUNTIME_START), nbformat.v4.new_code_cell(head + SETUP), nbformat.v4.new_code_cell(run)]
         nb = nbformat.v4.new_notebook(cells=cells)
+        validation = next((spec.split(':', 1)[0] for spec in queues.get('arms', [])
+                           if spec.split(':', 1)[0].startswith(('fd_fedavg_', 'fd_fedprox_', 'fd_fedtgp_',
+                                                               'fd_canperfl_', 'fd_centralized_'))), None) \
+                     if isinstance(queues, dict) else None
+        if validation:
+            method = validation.split('_')[1]
+            nb.cells[0].source = (f'# {method} feature validation seed{seed} session {session}\n'
+                                  f'{method} under its locked legacy recipe; rounds 1-15 of cosine T50. '
+                                  'Evaluation only on internal group and temporal holdouts; official test20% is not scored. '
+                                  'The three sessions differ only in full66, physical drop53, or 13-column m4b zero masking. '
+                                  'Contract: docs/methods/full-drift/design.md')
+        elif isinstance(queues, dict) and queues.get('holdout_only'):
+            nb.cells[0].source = (f'# FullDrift m4b validation seed{seed} session {session}\n'
+                                  'Same selected recipe, epochs 1-15 of cosine T50. '
+                                  'Evaluation only on internal group and temporal holdouts; official test20% is not scored. '
+                                  'Contract: docs/methods/full-drift/design.md')
         if isinstance(queues, dict) and queues.get('final'):
             nb.cells[0].source = (f'# FullDrift final {clients} clients, seed {seed}\n'
                                  f'Every train80% row; cosine T50. Session cap {queues.get("session_rounds") or "time budget"} epochs. '
@@ -427,8 +481,6 @@ def main():
             uploaded=False), indent=2) + '\n')
         subprocess.run(['git', 'check-ignore', '-q', str((private / meta['code_file']).resolve())], cwd=ROOT, check=True)
         pushed = nbformat.reads(nbformat.writes(nb), as_version=4)
-        pushed.cells[1].source = pushed.cells[1].source.replace('_INLINE_WANDB_KEY = ""', '_INLINE_WANDB_KEY = ' + json.dumps(secret))
-        assert pushed.cells[1].source != nb.cells[1].source
         for name, value in [(meta['code_file'], nbformat.writes(pushed)), ('kernel-metadata.json', json.dumps(meta, indent=2))]:
             fd = os.open(private / name, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
             with os.fdopen(fd, 'w') as f: f.write(value)

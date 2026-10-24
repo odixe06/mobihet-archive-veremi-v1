@@ -108,7 +108,15 @@ ARMS = ['fd_dml', 'fd_dml_prox', 'fd_dml_avgm', 'fd_fedavg', 'fd_gaussian', 'fd_
         # round 26 (owner 22/10 after probes 32-36): the cv refit in a 48-d projection of h256 that holds every snapshot head direction
         # plus a fixed random complement, one covariance per class there (cvp, probe 23 Project48), alone and with the round-18 copula
         # support (cop): probe 36 frozen-head, both seeds, cvp + cop vs the deployed method +0.0077 / +0.0051
-        'fd_dml_m4b_gpool_q3_frz_gkd_la_kdpx_zl_cvp', 'fd_dml_m4b_gpool_q3_frz_gkd_la_kdpx_zl_cvp_cop']
+        'fd_dml_m4b_gpool_q3_frz_gkd_la_kdpx_zl_cvp', 'fd_dml_m4b_gpool_q3_frz_gkd_la_kdpx_zl_cvp_cop',
+        # round 27 validation: same selected recipe, either all 66 inputs or physically remove the 13 m4b inputs
+        'fd_dml_full66_gpool_q3_frz_gkd_la_kdpx_zl', 'fd_dml_drop53_gpool_q3_frz_gkd_la_kdpx_zl',
+        # FedAvg feature-input validation: same full-data holdout recipe, optimizer and aggregation; only input handling changes.
+        'fd_fedavg_full66', 'fd_fedavg_drop53', 'fd_fedavg_m4b',
+        'fd_fedprox_full66', 'fd_fedprox_drop53', 'fd_fedprox_m4b',
+        'fd_fedtgp_full66', 'fd_fedtgp_drop53', 'fd_fedtgp_m4b',
+        'fd_canperfl_full66', 'fd_canperfl_drop53', 'fd_canperfl_m4b',
+        'fd_centralized_full66', 'fd_centralized_drop53', 'fd_centralized_m4b']
 MU, SWAP_P, EMA_BETA, CAL_ROWS, SERVER_BETA = 0.01, 0.5, 0.5 ** 0.5, 65536, 0.9
 KD_CAP, DYN_ALPHA, CONS_LAMBDA, PROBE_ROWS = 1.0, 0.01, 1.0, 512   # plan §4.2 / §5.1 / §4.5 screening values
 KD_UP, GW2 = 2.0, 2.0   # round 11 kd2: private-side KD weight multiplier; gw2: weight of the private-only Gaussian CE
@@ -117,6 +125,8 @@ P1_LAMBDA, P1_T, P1_CLASSES = 0.25, 1.0, (0, 4)   # round 13 P1: KL weight, temp
 XO_RHO, XO_FLOOR = 0.3, 0.1   # round 24 xo: donor feature rate; uniform share (over held pairs) mixed into the pair priority
 CV_STEPS, CV_BATCH, CV_LR, CV_JITTER = 3000, 4096, 1e-3, 1e-4   # round 25 cv: server head fit on virtual features (probe 22)
 CV_PROJ = 48   # round 26 cvp: projected width (probe 23 Project48)
+TGP_DIM, TGP_LAMBDA, TGP_STEPS, TGP_LR, TGP_TAU = 544, 1.0, 100, 1e-3, 100.0
+PERSONAL_EPOCHS, PERSONAL_MAX_ROWS = 10, 30_000
 BLOCK = ['f_rcv_pos_noise_x', 'f_rcv_pos_noise_y', 'f_rcv_spd_noise', 'f_rcv_acl_noise', 'f_rcv_hed_noise',
          'f_rcv_noise_mag', 'f_rcv_profile_normal', 'f_rcv_profile_cautious', 'f_rcv_profile_aggressive']
 POSITION = ['f_rcv_x_rel', 'f_rcv_y_rel', 'f_snd_x_rel', 'f_snd_y_rel']
@@ -304,11 +314,40 @@ class Clients(list):
     def __iter__(self): return (self[k] for k in range(len(self)))
 
 
+class TrainableGlobalPrototypes(torch.nn.Module):
+    """FedTGP server module ported from the reference implementation."""
+    def __init__(self, dev):
+        super().__init__(); self.raw = torch.nn.Parameter(torch.randn(P.C, TGP_DIM, device=dev) * .02)
+        self.processor = torch.nn.Sequential(torch.nn.Linear(TGP_DIM, 256), torch.nn.ReLU(),
+                                             torch.nn.Linear(256, TGP_DIM)).to(dev)
+    def forward(self): return self.processor(self.raw)
+
+    def update(self, payloads):
+        valid = [(torch.as_tensor(p['sum'], device=self.raw.device), torch.as_tensor(p['count'], device=self.raw.device)) for p in payloads]
+        local = [(s / n.clamp_min(1)[:, None], n > 0) for s, n in valid]
+        local = [(p, mask) for p, mask in local if bool(mask.any())]
+        if not local: return self().detach(), 0., 0.
+        with torch.no_grad():
+            centers = [torch.stack([p[c] for p, mask in local if mask[c]]).mean(0) for c in range(P.C)
+                       if any(bool(mask[c]) for _, mask in local)]
+            margin = min(float(torch.pdist(torch.stack(centers)).max()) if len(centers) > 1 else 0., TGP_TAU)
+        opt = torch.optim.Adam(self.parameters(), lr=TGP_LR)
+        for _ in range(TGP_STEPS):
+            gp = self(); losses = []
+            for proto, mask in local:
+                labels = torch.where(mask)[0]; logits = -torch.cdist(proto[labels], gp)
+                logits[torch.arange(len(labels), device=labels.device), labels] -= margin
+                losses.append(F.cross_entropy(logits, labels))
+            loss = torch.stack(losses).mean(); opt.zero_grad(set_to_none=True); loss.backward(); opt.step()
+        return self().detach(), float(loss.detach()), margin
+
+
 class Method(FullMethod):
     def __init__(self, run, initialize=True):
         super().__init__(run, initialize)
         self.ema_private = None; self.cv_head = None   # round 25: calibrated head.5 of the current snapshot (None: not calibrated)
-        self.fedavg = 'fedavg' in self.arm
+        self.fedavg = any(name in self.arm for name in ('fedavg', 'fedprox', 'fedtgp', 'canperfl', 'centralized'))
+        self.tgp, self.canperfl, self.centralized = 'fedtgp' in self.arm, 'canperfl' in self.arm, 'centralized' in self.arm
         self.momentum = self.arm.endswith('_avgm'); self.velocity = {}
         self.bits = next((b for b in (4, 3, 2) if f'q{b}' in self.arm.split('_')), None); self.exact = None
         self.ubits = 2 if 'u2' in self.arm.split('_') else self.bits   # round 22: uplink bits (u2: 2-bit up, downlink keeps self.bits)
@@ -334,10 +373,14 @@ class Method(FullMethod):
                 self.gaussian.make_tables(); self.gaussian_state = self.gaussian.state()
         if self.fedavg:   # one shared model trained with CE only: the full DML proxy machinery without private/KD
             self.kd = True
-            torch.manual_seed(run.a.seed + 1000); initial = P.make('dagsnet').to(run.dev)
+            torch.manual_seed(run.a.seed + 1000)
+            initial = P.build_model(run.architecture, latent=True).to(run.dev)
             self.proxy = [copy.deepcopy(initial) for _ in range(run.K)]
             self.global_state = {name: value.clone() for name, value in initial.state_dict().items()}
             self.codec = Codec(initial, f'full:{self.arm}:{run.a.seed}')
+            if self.tgp:
+                torch.manual_seed(run.a.seed + 2000); self.tgp_server = TrainableGlobalPrototypes(run.dev)
+                self.tgp_proto = self.tgp_server().detach()
 
     def prior(self):
         super().prior()
@@ -574,8 +617,11 @@ class Run(FullRun):
         tokens = args.arm.split('_')
         self.aux_w = GW2 if 'gw2' in tokens else args.aux_weight
         self.kdup, self.kdpx = 'kd2' in tokens, 'kdpx' in tokens   # round 11 KD weights (private x2 / proxy side capped)
-        self.mu = MU if 'prox' in tokens else 0.
-        self.swap = 'swappos' in tokens; self.fedavg = 'fedavg' in args.arm; self.ntd = 'ntd' in tokens
+        self.mu = MU if {'prox', 'fedprox'} & set(tokens) else 0.
+        self.swap = 'swappos' in tokens
+        self.fedavg = any(name in args.arm for name in ('fedavg', 'fedprox', 'fedtgp', 'canperfl', 'centralized'))
+        self.tgp, self.canperfl, self.centralized = 'fedtgp' in args.arm, 'canperfl' in args.arm, 'centralized' in args.arm
+        self.ntd = 'ntd' in tokens
         # round 8: capped KD weight; private KD off until the first aggregated snapshot (wu) or from a frozen snapshot (frz);
         # FedDyn proxy; two receiver views + JS (cons, lambda 1) or the same two views without JS (cons0)
         self.kdcap = 'kdcap' in tokens; self.frz = 'frz' in tokens; self.warm = self.frz or 'wu' in tokens
@@ -597,6 +643,7 @@ class Run(FullRun):
         self.xo = next((t for t in tokens if t in ('xo', 'xou')), None); assert not self.xo or (self.gkd and not self.t2)   # round 24
         self.cv = next((t for t in tokens if t in ('cvf', 'cvl', 'cvp')), None); assert not self.cv or (self.gkd and self.frz)   # round 25/26
         assert ('g512' in tokens) == (args.aux_batch == (128 if args.smoke else 512)), 'g512 <=> doubled aux_batch (set in main)'
+        self.drop53 = 'drop53' in tokens
         hidden = BLOCK + POSITION if 'm4b' in tokens else POSITION if self.swap else []
         # --final (owner 19/10): the final-protocol fixture (every train80% row, no group/old); smoke reuses the pilot fixture
         self.final = getattr(args, 'final', False)
@@ -606,6 +653,9 @@ class Run(FullRun):
         self.block = torch.tensor([names.index(n) for n in BLOCK], device=self.dev)
         self.zero = torch.tensor([names.index(n) for n in hidden], device=self.dev, dtype=torch.long)
         self.zero_cols = torch.zeros(len(names), dtype=torch.bool, device=self.dev); self.zero_cols[self.zero] = True
+        dropped = set(BLOCK + POSITION)
+        self.keep = torch.tensor([i for i, name in enumerate(names) if name not in dropped], device=self.dev, dtype=torch.long)
+        assert len(self.keep) == 53 and len(dropped) == 13
         def rows(k, name, dtype=None):
             v = np.load(fixture / f'train_{k}_{name}.npy', mmap_mode='r')
             if args.smoke: v = v[np.random.default_rng(k).choice(len(v), 1024, replace=False)]
@@ -617,14 +667,16 @@ class Run(FullRun):
         self.Y = [rows(k, 'y', 'int64') for k in range(self.K)]
         self.G = [rows(k, 'g', 'int64') if k in self.own else None for k in range(self.K)] if self.swap else []
         self.H = {}
-        for hold in ('test',) if self.final else ('group', 'old', 'test'):
+        holdouts = ('test',) if self.final else ('group', 'old') if getattr(args, 'holdout_only', False) else ('group', 'old', 'test')
+        for hold in holdouts:
             name = 'old' if args.smoke and hold == 'test' else hold
             x = np.load(fixture / f'{name}_X.npy', mmap_mode='r'); y = np.load(fixture / f'{name}_y.npy', mmap_mode='r')
             if args.smoke: x, y = x[:256], y[:256]
             self.H[hold] = (torch.from_numpy(np.array(x, copy=True)).to(self.dev),
                             torch.from_numpy(np.array(y, dtype='int64', copy=True)).to(self.dev))
         self.n = [len(y) for y in self.Y]
-        if not args.smoke: (check_final_manifest if self.final else check_full_manifest)(manifest, self.n, len(self.H['test'][1]))
+        test_rows = len(self.H['test'][1]) if 'test' in self.H else int(manifest['test_rows'])
+        if not args.smoke: (check_final_manifest if self.final else check_full_manifest)(manifest, self.n, test_rows)
         self.counts = torch.stack([torch.bincount(y, minlength=16) for y in self.Y]).double()
         self.log_pi = ((self.counts + 1) / (self.counts + 1).sum(1, keepdim=True)).log().float()
         self.log_pg = ((self.counts.sum(0) + 1) / (self.counts.sum() + 16)).log().float()
@@ -639,7 +691,10 @@ class Run(FullRun):
             q = torch.stack([torch.bincount(l, minlength=16).float() / len(l) for l in self.aux_labels])
             self.log_pe = ((self.log_pi.exp() + self.aux_w * q) / (1 + self.aux_w)).log().float()
         self.rules = ('head', 'gp', 'gpe') if self.log_pe is not None else ('head', 'gp')
-        torch.manual_seed(args.seed); self.init = P.make('dagsnet').to(self.dev)
+        self.architecture = dict(P.CFG, n_features=53, num_classes=P.C, input_pad=1) if self.drop53 else \
+                            dict(P.CFG, n_features=P.D, num_classes=P.C)
+        torch.manual_seed(args.seed)
+        self.init = P.build_model(self.architecture, latent=True).to(self.dev) if self.drop53 else P.make('dagsnet').to(self.dev)
         self.priv = [copy.deepcopy(self.init) for _ in range(self.K)]
         self.work_private = copy.deepcopy(self.init); self.work_proxy = copy.deepcopy(self.init)
         self.eval_template = copy.deepcopy(self.init).eval()
@@ -677,6 +732,7 @@ class Run(FullRun):
     def compile_preflight(self):
         """full_run.compile_preflight on this process's own client rows (round 18; it read client 0): state and RNG restored."""
         rows = self.X; self.X = [rows[self.own[0]]]
+        if self.drop53 or len(self.zero): self.X = [_Masked(self.X[0], self)]
         try: super().compile_preflight()
         finally: self.X = rows
 
@@ -686,6 +742,7 @@ class Run(FullRun):
         training = role != 'teacher'; model.train(training)
         x = self.X[self.own[0]][:batch].float()   # round 18: this process's own client rows (was client 0)
         if len(x) < batch: x = x.repeat((batch + len(x) - 1) // len(x), 1)[:batch]
+        if self.drop53 or len(self.zero): x = self.mask(x)
         saved = {k: v.clone() for k, v in model.state_dict().items()}; rng = torch.cuda.get_rng_state()
         dropout = [(m, m.p) for m in model.modules() if isinstance(m, torch.nn.Dropout)]
         for m, _ in dropout: m.p = 0.
@@ -846,6 +903,7 @@ class Run(FullRun):
                     probe_grad_ce=g_ce, probe_grad_kl=g_kl, probe_ratio=used * g_kl / max(g_ce, 1e-30))
 
     def mask(self, x):
+        if self.drop53: return x.index_select(1, self.keep)
         return x.masked_fill(self.zero_cols, 0) if len(self.zero) else x   # == clone + x[:, zero] = 0, without a host sync
 
     def transform(self, x, index, k, gen):
@@ -864,7 +922,7 @@ class Run(FullRun):
 
     @torch.no_grad()
     def logits(self, model, x):
-        return super().logits(model, x) if not len(self.zero) else super().logits(model, _Masked(x, self))
+        return super().logits(model, x) if not (self.drop53 or len(self.zero)) else super().logits(model, _Masked(x, self))
 
     def private_epoch(self, method, k, r):
         """full_run.Run.private_epoch + hooks: FedProx on the proxy (prox), receiver swap + position mask (swappos), receiver+position features zeroed (m4b),
@@ -919,12 +977,14 @@ class Run(FullRun):
         drawn = torch.bincount(aux_labels, minlength=16).float(); p1_classes = torch.zeros(16, device=self.dev)
         p1_classes[list(P1_CLASSES)] = 1
         synstat = torch.zeros(3, 16, device=self.dev); synkl = torch.zeros(2, device=self.dev)   # accepted/drawn/gated; KL sum, gated
+        proto_sum = torch.zeros(P.C, TGP_DIM, device=self.dev) if self.tgp else None
+        proto_count = torch.zeros(P.C, device=self.dev) if self.tgp else None
         for start in range(0, len(order), self.a.batch):
             torch.compiler.cudagraph_mark_step_begin()
             index = order[start:start + self.a.batch]; x, y = self.X[k][index].float(), self.Y[k][index]
             if self.cons: x = torch.cat(self.two_views(x, index, k, swap_gen)); y = torch.cat([y, y])
             elif self.swap: x = self.transform(x, index, k, swap_gen)
-            elif len(self.zero): x = self.mask(x)
+            elif self.drop53 or len(self.zero): x = self.mask(x)
             real = len(y)
             labels = aux_labels
             if method.aux: x = torch.cat([x, self.mask(method.draw(labels, g, k))])
@@ -935,7 +995,16 @@ class Run(FullRun):
                 rows, labels = self.replay_rows(k, self.a.aux_batch, gd); xp = torch.cat([x, rows])
             with torch.autocast('cuda', dtype=torch.float16):
                 if self.fedavg:
-                    proxy_ce = F.cross_entropy(self.forward(proxy, x)[0].float(), y)
+                    if self.tgp:
+                        encoded = proxy.combined(x).float(); logits = proxy.head(encoded).float()
+                        proxy_ce = F.cross_entropy(logits, y); guidance = proxy_ce.detach() * 0
+                        for label in torch.unique(y):
+                            selected = y == label; mean = encoded[selected].mean(0)
+                            guidance = guidance + (mean - method.tgp_proto[label]).square().mean()
+                            proto_sum[label] += encoded[selected].detach().sum(0); proto_count[label] += selected.sum()
+                        proxy_ce = proxy_ce + TGP_LAMBDA * guidance / max(int(torch.unique(y).numel()), 1)
+                    else:
+                        proxy_ce = F.cross_entropy(self.forward(proxy, x)[0].float(), y)
                     ce = extra = proxy_extra = proxy_ce.detach() * 0; loss = proxy_ce
                 else:
                     if self.hkd: zs, hs = (v.float() for v in self.forward(private, x))
@@ -1039,6 +1108,7 @@ class Run(FullRun):
         assert applied > 0 and skipped <= 16, (k, r, applied, skipped)
         for model in models: finite(model)
         kd = {}
+        if self.tgp: kd['tgp_payload'] = dict(sum=proto_sum.cpu().numpy(), count=proto_count.cpu().numpy())
         if proxy is not None and not self.fedavg:   # KD weight/coefficient diagnostics (plan §4.2), no effect on training
             w = wbuf.cpu(); s = (kdstat / applied).tolist()
             kd = dict(w_median=float(w.median()), w_p95=float(torch.quantile(w, .95)), w_max=float(w.max()), cap_hit=s[1],
@@ -1091,6 +1161,95 @@ class Run(FullRun):
                     codec_up_encode_seconds=method.diag['codec_up_encode_seconds'] - encoding_before,
                     private=None if self.fedavg else cpu(self.priv[k]),
                     proxy=cpu(method.proxy[k]) if method.kd and method.own else None, ef=ef)
+
+    def centralized_epoch(self, method, r):
+        """One pooled epoch: one optimizer/model and a global row permutation, assembled in bounded GPU chunks."""
+        started = time.time(); model = self.work_proxy; model.load_state_dict(method.global_state, strict=True); model.train()
+        optimizer = torch.optim.AdamW(model.parameters(), lr=self.lr(r), weight_decay=0., fused=self.fused)
+        scaler = torch.amp.GradScaler(); g = self.gen(r, 0, 901)
+        bounds = torch.tensor([0, *np.cumsum(self.n).tolist()], device=self.dev, dtype=torch.long)
+        order = torch.randperm(int(bounds[-1]), device=self.dev, generator=g)
+        total = torch.zeros(2, device=self.dev); skips = torch.zeros((), dtype=torch.long, device=self.dev)
+        chunk = 1 << 20; batches = 0
+        for offset in range(0, len(order), chunk):
+            ids = order[offset:offset + chunk]; owner = torch.bucketize(ids, bounds[1:-1], right=True)
+            xb = torch.empty((len(ids), P.D), device=self.dev, dtype=self.X[0].dtype)
+            yb = torch.empty(len(ids), device=self.dev, dtype=self.Y[0].dtype)
+            for k in range(self.K):
+                pos = torch.nonzero(owner == k).squeeze(1)
+                if len(pos):
+                    local = ids[pos] - bounds[k]; xb[pos] = self.X[k][local]; yb[pos] = self.Y[k][local]
+            for start in range(0, len(ids), self.a.batch):
+                batches += 1
+                x, y = self.mask(xb[start:start + self.a.batch].float()), yb[start:start + self.a.batch]
+                with torch.autocast('cuda', dtype=torch.float16): loss = F.cross_entropy(self.forward(model, x)[0].float(), y)
+                scaler.scale(loss).backward(); scaler.unscale_(optimizer)
+                norm = torch.nn.utils.clip_grad_norm_(model.parameters(), self.a.clip)
+                before = scaler._get_scale_async().clone(); scaler.step(optimizer); scaler.update(); optimizer.zero_grad(set_to_none=True)
+                skip = scaler._get_scale_async() < before; skips += skip
+                total += torch.where(skip, 0., torch.stack([loss.detach(), norm.detach()]))
+        skipped = int(skips); applied = batches - skipped; skip_budget = 16 * self.K
+        print('CENTRALIZED AMP', dict(batches=batches, applied=applied, skipped=skipped, skip_budget=skip_budget), flush=True)
+        assert applied > 0 and skipped <= skip_budget; finite(model)
+        method.global_state = {n: v.detach().clone() for n, v in model.state_dict().items()}; method.version = r
+        for replica in method.proxy: replica.load_state_dict(method.global_state, strict=True)
+        common = dict(client=-1, rows=sum(self.n), applied=applied, skipped=skipped)
+        method.logs[0] = dict(common, loss=float(total[0] / applied), positive_ce=float(total[0] / applied),
+                              negative_ce=0., prox=0., drift=0.)
+        return dict(common, loss=float(total[0] / applied), real_ce=float(total[0] / applied), auxiliary=0.,
+                    grad_norm=float(total[1] / applied), seconds=time.time() - started)
+
+    def personalize_canperfl(self, method, out, holds):
+        """CanPer-FL Fed-FN stage: freeze shared representation, fine-tune each client's head on at most 30k own rows."""
+        started = time.time(); models, clients = [], []
+        for k in range(self.K):
+            model = P.build_model(self.architecture, latent=True).to(self.dev)
+            model.load_state_dict(method.global_state, strict=True)
+            for p in model.parameters(): p.requires_grad_(False)
+            for p in model.head.parameters(): p.requires_grad_(True)
+            optimizer = torch.optim.AdamW(model.head.parameters(), lr=1e-3, weight_decay=0., fused=self.fused)
+            scaler = torch.amp.GradScaler(); g = self.gen(self.a.stop_after + 1, k, 710)
+            X, Y = self.X[k], self.Y[k]
+            chosen = torch.randperm(self.n[k], device=self.dev, generator=g)[:min(self.n[k], PERSONAL_MAX_ROWS)]
+            applied = skipped = 0; loss_sum = torch.zeros((), device=self.dev)
+            model.train()
+            for _ in range(PERSONAL_EPOCHS):
+                order = chosen[torch.randperm(len(chosen), device=self.dev, generator=g)]
+                for start in range(0, len(order), self.a.batch):
+                    idx = order[start:start + self.a.batch]; x, y = self.mask(X[idx].float()), Y[idx]
+                    with torch.autocast('cuda', dtype=torch.float16): loss = F.cross_entropy(model(x)[0].float(), y)
+                    scaler.scale(loss).backward(); scaler.unscale_(optimizer)
+                    torch.nn.utils.clip_grad_norm_(model.head.parameters(), self.a.clip)
+                    before = scaler._get_scale_async().clone(); scaler.step(optimizer); scaler.update(); optimizer.zero_grad(set_to_none=True)
+                    if bool(scaler._get_scale_async() < before): skipped += 1
+                    else: applied += 1; loss_sum += loss.detach()
+            assert applied > 0 and skipped <= 16; finite(model); model.eval()
+            clients.append(dict(client=k, rows=len(chosen), epochs=PERSONAL_EPOCHS, applied=applied, skipped=skipped,
+                                loss=float(loss_sum / applied)))
+            models.append(model)
+            del X
+        arrays, evaluated = {}, {}
+        for hold in holds:
+            y = self.H[hold][1]; arrays[hold + '_y'] = y.cpu().numpy().astype('uint8')
+            cms, preds = [], []
+            for k, model in enumerate(models):
+                cm, pred = self.score(model, k, hold, ('head',))['head']; cms.append(cm); preds.append(pred)
+            mm = [metrics_from_confusion(cm) for cm in cms]
+            pc = np.mean([[x['f1'] for x in per_class_from_confusion(cm, P.CLASSES)] for cm in cms], axis=0)
+            evaluated[hold] = {'head': dict(mean_metrics={key: float(np.mean([v[key] for v in mm])) for key in METRIC_KEYS},
+                                             f1_macro=float(np.mean([v['f1_macro'] for v in mm])), benign_f1=float(pc[0]),
+                                             f1_per_class=pc.tolist(), confusion_clients=np.stack(cms).tolist())}
+            arrays[f'personalized_{hold}_head'] = np.stack(preds)
+        folder = out / 'personalized'; folder.mkdir(exist_ok=True)
+        with (folder / 'predictions.tmp').open('wb') as f: np.savez_compressed(f, **arrays)
+        os.replace(folder / 'predictions.tmp', folder / 'predictions.npz')
+        save(folder / 'weights.pt', dict(architecture=self.architecture,
+             clients=[{n: v.detach().cpu() for n, v in model.state_dict().items()} for model in models]))
+        result = dict(method='Fed-FN', epochs=PERSONAL_EPOCHS, max_rows=PERSONAL_MAX_ROWS, clients=clients,
+                      eval=evaluated, seconds=time.time() - started,
+                      predictions_sha=digest(folder / 'predictions.npz'), weights_sha=digest(folder / 'weights.pt'))
+        save(folder / 'metrics.json', result)
+        return result
 
     def install(self, method, res, r, private_logs, proxy_logs):
         """Server side of client_round(), called in client order: the same state and byte log as the serial loop in main()."""
@@ -1161,6 +1320,21 @@ class Run(FullRun):
                     arrays[f'{role}_{hold}_{rule}'] = np.stack(preds[rule])
                 results[hold] = result
             evaluated[role] = results
+        if self.tgp:
+            results = {}
+            model = m.proxy[0].eval()
+            for hold in holds:
+                X, y = self.H[hold]; preds = []
+                for start in range(0, len(y), 16384):
+                    h = model.combined(self.mask(X[start:start + 16384].float())).float()
+                    preds.append(torch.cdist(h, m.tgp_proto.float()).argmin(1))
+                pred = torch.cat(preds); cm = torch.bincount(y * P.C + pred, minlength=P.C ** 2).view(P.C, P.C).cpu().numpy()
+                mm = metrics_from_confusion(cm); pc = [x['f1'] for x in per_class_from_confusion(cm, P.CLASSES)]
+                results[hold] = {'nearest': dict(mean_metrics={key: float(mm[key]) for key in METRIC_KEYS},
+                                                  f1_macro=float(mm['f1_macro']), benign_f1=float(pc[0]),
+                                                  f1_per_class=list(map(float, pc)), confusion_clients=np.stack([cm] * self.K).tolist())}
+                arrays[f'prototype_{hold}_nearest'] = np.stack([pred.cpu().numpy().astype('uint8')] * self.K)
+            evaluated['prototype'] = results
         pf = out / 'predictions' / f'round_{r:03d}.npz'; pf.parent.mkdir(exist_ok=True)
         tmp = pf.with_suffix('.tmp')
         with tmp.open('wb') as f: np.savez_compressed(f, **arrays)
@@ -1213,7 +1387,8 @@ class Pool:
     def round(self, m, R, r):
         state = {n: v.detach().cpu() for n, v in m.global_state.items()} if m.kd else None
         head = None if m.cv_head is None else {n: v.detach().cpu() for n, v in m.cv_head.items()}   # round 25
-        for conn in self.conns.values(): put(conn, ('round', r, state, m.version, head))
+        proto = m.tgp_proto.detach().cpu() if getattr(m, 'tgp', False) else None
+        for conn in self.conns.values(): put(conn, ('round', r, state, m.version, head, proto))
         results = {res['k']: res for res in (R.client_round(m, k, r) for k in R.own)}
         for conn in self.conns.values(): results.update({res['k']: res for res in get(conn)})
         private_logs, proxy_logs = [], []
@@ -1253,9 +1428,10 @@ def serve(a):
     while True:
         command = get(conn)
         if command[0] == 'round':
-            _, r, state, version, head = command
+            _, r, state, version, head, proto = command
             if state is not None: m.global_state = {n: v.to(R.dev) for n, v in state.items()}
             m.cv_head = None if head is None else {n: v.to(R.dev) for n, v in head.items()}
+            if proto is not None: m.tgp_proto = proto.to(R.dev)
             m.version = version; m.start_round()
             put(conn, [R.client_round(m, k, r) for k in R.own])
         elif command[0] == 'eval':
@@ -1322,31 +1498,39 @@ def main():
     p.add_argument('--final', action='store_true')
     p.add_argument('--clients', type=int, choices=(20, 50, 100), default=20)
     p.add_argument('--defer_eval', action='store_true', help='commit training; evaluate every round in separate notebooks')
+    p.add_argument('--holdout_only', action='store_true', help='score internal group/old holdouts; never score official test20%')
     p.add_argument('--session_rounds', type=int, help='operational cap; total cosine schedule remains --rounds 50')
     a = p.parse_args()
     assert a.final or a.clients == 20
     assert not a.defer_eval or a.final
+    assert not (a.final and a.holdout_only)
     assert a.session_rounds is None or a.session_rounds > 0
     assert not a.final or a.smoke or a.stop_after == 50, 'final runs end at round 50 (sessions chain with --parent)'
     if 'g512' in a.arm.split('_'): a.aux_batch *= 2   # round 18: 512 synthetic rows per batch (smoke: 128)
     if a.smoke: a.stop_after = 2; a.aux_batch = 128 if 'g512' in a.arm.split('_') else 64
-    else: assert a.rounds == 50 and a.stop_after in (6, 15, 50) and a.wandb_online
+    else: assert a.rounds == 50 and a.stop_after in (6, 15, 50)
     assert (a.parent is None) == (a.parent_round is None) and (a.parent is None or 0 < a.parent_round < a.stop_after)
     tokens = a.arm.split('_')
     assert a.workers == 1 or not ({'dyn', 'cons', 'cons0'} & set(tokens) or any(t.startswith('scaf') for t in tokens)), \
         'FedDyn/SCAFFOLD keep cross-client sums inside private_epoch: serial only'
+    assert not ('centralized' in tokens and a.workers != 1), 'centralized uses one model/optimizer on one GPU'
     if a.rank: return serve(a)
     out = Path(a.out) / (f'{a.arm}_s{a.seed}' + ('' if a.smoke or a.stop_after == 6 else f'_e{a.stop_after}')); out.mkdir(parents=True, exist_ok=True)
     assert not (out / 'config.json').exists(), 'single-session probe: no resume'
     config = {k: v for k, v in vars(a).items() if k not in ('out', 'wandb_online', 'wandb_project', 'max_hours', 'workers', 'rank', 'address',
-                                                            'parent', 'parent_round', 'fast', 'final', 'clients', 'defer_eval', 'session_rounds')}
+                                                            'parent', 'parent_round', 'fast', 'final', 'clients', 'defer_eval', 'holdout_only', 'session_rounds')}
     if a.fast: config['fast'] = True   # absent when off: configs (and parent checks) of earlier runs unchanged
     if a.final: config['final'] = True
     if a.clients != 20: config['clients'] = a.clients
     if a.defer_eval: config['defer_eval'] = True
+    if a.holdout_only: config['holdout_only'] = True
     config.update(mu=MU, swap_p=SWAP_P, ema_beta=EMA_BETA, cal_rows=CAL_ROWS,
                   kd_cap=KD_CAP, dyn_alpha=DYN_ALPHA, cons_lambda=CONS_LAMBDA, probe_rows=PROBE_ROWS, kd_up=KD_UP, gw2=GW2,
                   p1_lambda=P1_LAMBDA, p1_t=P1_T, p1_classes=list(P1_CLASSES))
+    if 'fedtgp' in a.arm: config.update(tgp_dim=TGP_DIM, tgp_lambda=TGP_LAMBDA, tgp_steps=TGP_STEPS,
+                                        tgp_lr=TGP_LR, tgp_tau=TGP_TAU)
+    if 'canperfl' in a.arm: config.update(personal_epochs=PERSONAL_EPOCHS, personal_max_rows=PERSONAL_MAX_ROWS,
+                                          personal_lr=1e-3)
     if {'xo', 'xou'} & set(a.arm.split('_')): config.update(xo_rho=XO_RHO, xo_floor=XO_FLOOR)   # round 24; absent otherwise
     if {'cvf', 'cvl', 'cvp'} & set(a.arm.split('_')): config.update(cv_steps=CV_STEPS, cv_batch=CV_BATCH, cv_lr=CV_LR, cv_jitter=CV_JITTER)   # round 25
     if 'cvp' in a.arm.split('_'): config.update(cv_proj=CV_PROJ)   # round 26 (cvf/cvl configs unchanged)
@@ -1402,7 +1586,9 @@ def train(a, out, fingerprint, wb, t0, pool):
         t1 = time.time(); private_logs, proxy_logs = [], []
         m.start_round()
         if R.cv: R.cv_round(m, r, pool)   # round 25: calibrated snapshot head before the local epochs
-        if pool: private_logs, proxy_logs = pool.round(m, R, r)
+        if R.centralized:
+            private_logs = [R.centralized_epoch(m, r)]; proxy_logs = [m.logs[0]]
+        elif pool: private_logs, proxy_logs = pool.round(m, R, r)
         else:
             for k in range(R.K):
                 if m.kd: m.prepare(k, r)
@@ -1410,8 +1596,13 @@ def train(a, out, fingerprint, wb, t0, pool):
                 if m.kd:
                     packet, log = m.proxy_epoch(k, r); proxy_logs.append(log)
                     if packet is not None: m.aggregate_sum.add(k, packet)
-        aggregation_started = time.perf_counter(); m.aggregate(r)
+        aggregation_started = time.perf_counter()
+        if not R.centralized: m.aggregate(r)
         aggregation_seconds = time.perf_counter() - aggregation_started
+        if R.tgp:
+            payloads = [row.pop('tgp_payload') for row in private_logs]
+            m.tgp_proto, tgp_loss, tgp_margin = m.tgp_server.update(payloads)
+            m.diag.update(tgp_loss=tgp_loss, tgp_margin=tgp_margin)
         m.update_ema()
         algorithm_seconds = time.time() - t1
         diagnostics = dict(swap_fraction=R.swap_stats[0] / max(R.swap_stats[1], 1),
@@ -1449,7 +1640,8 @@ def train(a, out, fingerprint, wb, t0, pool):
             row['cost']['gaussian_matvec_flops_estimate'] = synthetic * 2 * P.D * P.D
             if R.cv and r > 1: row['cost']['cv_forward_rows'] = 3 * sum(len(c) for c in R.cal)   # round 25: moments + 2 diagnostic passes
         last = r == a.stop_after
-        holds = ('test',) if a.final else ('group', 'old', 'test') if last else ('group', 'old')   # --final: test20% every round
+        holds = ('test',) if a.final else ('group', 'old') if getattr(a, 'holdout_only', False) else \
+                ('group', 'old', 'test') if last else ('group', 'old')   # --final: test20% every round
         row['eval'] = {} if a.defer_eval else R.evaluate(m, out, r, holds, scores=pool.scores(R, holds) if pool and not m.fedavg else None)
         if a.defer_eval: row['evaluation_pending'] = True
         else: row['predictions_sha'] = digest(out / 'predictions' / f'round_{r:03d}.npz')
@@ -1457,7 +1649,10 @@ def train(a, out, fingerprint, wb, t0, pool):
                        proxy=[{k: v.detach().cpu() for k, v in s.items()} for s in
                               [p.state_dict() for p in (m.proxy if m.own else m.proxy[:1])]] if m.kd else [],
                        ema_private=[{k: v.detach().cpu() for k, v in s.items()} for s in (m.ema_private or [])],
-                       architecture=dict(P.CFG, n_features=P.D, num_classes=P.C), round=r, fingerprint=fingerprint)
+                       architecture=R.architecture, round=r, fingerprint=fingerprint)
+        if R.tgp:
+            weights['tgp_proto'] = m.tgp_proto.detach().cpu()
+            weights['tgp_server'] = {k: v.detach().cpu() for k, v in m.tgp_server.state_dict().items()}
         wp = out / 'weights' / f'round_{r:03d}.pt'; save(wp, weights); row['weights_sha'] = digest(wp)
         if m.bits:   # codec state beyond the weights (server exact model, client uplink residuals): resume bundle before the marker
             rp = out / 'resume' / f'round_{r:03d}.pt'
@@ -1466,7 +1661,7 @@ def train(a, out, fingerprint, wb, t0, pool):
             row['resume_sha'] = digest(rp)
         row['sec'] = time.time() - t1; previous = row['weights_sha']
         save(out / 'complete' / f'round_{r:03d}.json', row); hist.append(row)   # atomic commit LAST
-        role, rule = ('proxy', 'head') if m.kd and not m.own else ('private', 'gp')
+        role, rule = ('prototype', 'nearest') if R.tgp else ('proxy', 'head') if m.kd and not m.own else ('private', 'gp')
         shown = 'test' if a.final else 'group'
         display = 'pending' if a.defer_eval else f'{row["eval"][role][shown][rule]["f1_macro"]:.4f}'
         print(f'r{r} {a.arm} s{a.seed} {role} {shown} {rule} {display} '
@@ -1479,9 +1674,10 @@ def train(a, out, fingerprint, wb, t0, pool):
                     for rule_name, ev in rules.items():
                         metrics.update({f'{model_role}/{hold}/{rule_name}/{key}': v for key, v in ev['mean_metrics'].items()})
             wb.log(metrics)
+    personalized = R.personalize_canperfl(m, out, ('group', 'old')) if R.canperfl and hist and hist[-1]['round'] == a.stop_after else None
     result = dict(config=vars(a), fingerprint=fingerprint, history=hist, bytes=R.bytes, train_rows=R.n,
                   complete=len(hist) == a.stop_after - start, session_complete=len(hist) == session_end - start,
-                  evaluation_pending=a.defer_eval, minutes=(time.time() - t0) / 60)
+                  evaluation_pending=a.defer_eval, personalized=personalized, minutes=(time.time() - t0) / 60)
     save(out / 'result.json', result)
     with (out / 'metrics.csv').open('w', newline='') as f:
         w = csv.DictWriter(f, fieldnames=['round', 'role', 'holdout', 'rule', *METRIC_KEYS]); w.writeheader()
@@ -1490,7 +1686,13 @@ def train(a, out, fingerprint, wb, t0, pool):
                 for hold, rules in holds.items():
                     for rule, ev in rules.items():
                         w.writerow(dict(round=row['round'], role=role, holdout=hold, rule=rule, **ev['mean_metrics']))
-    if wb: wb.summary['complete'] = result['complete']; wb.summary['rounds_completed'] = len(hist); wb.finish()
+    if wb:
+        wb.summary['complete'] = result['complete']; wb.summary['rounds_completed'] = len(hist)
+        if personalized:
+            for hold, rules in personalized['eval'].items():
+                for rule, ev in rules.items():
+                    for key, value in ev['mean_metrics'].items(): wb.summary[f'personalized/{hold}/{rule}/{key}'] = value
+        wb.finish()
     print('done', a.arm, 'complete', result['complete'], flush=True)
 
 

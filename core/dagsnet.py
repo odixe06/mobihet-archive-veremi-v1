@@ -19,6 +19,7 @@ signed instead of the non-negative orthant of a ReLU layer. The classifier still
 """
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 
 
 def cbr(i, o, k):
@@ -111,8 +112,10 @@ class DAGSNet(nn.Module):
     def __init__(self, cfg, n_features, out_dim):
         super().__init__()
         self.patch_len = cfg["patch_len"]
-        assert n_features % self.patch_len == 0
-        self.k = n_features // self.patch_len                   # 11
+        self.input_features = n_features
+        self.input_pad = int(cfg.get("input_pad", 0))
+        assert self.input_pad >= 0 and (n_features + self.input_pad) % self.patch_len == 0
+        self.k = (n_features + self.input_pad) // self.patch_len
         cin = self.patch_len                                    # 6 kênh
 
         s = cfg["stem_ch"]
@@ -133,7 +136,9 @@ class DAGSNet(nn.Module):
     def combined(self, x):                                      # (B, n_features) -> (B, 544)
         # view rồi MỚI transpose: gom 6 cột liên tiếp thành một patch, sau đó patch
         # mới trở thành trục vị trí. Làm view(B, 6, 11) thẳng sẽ trộn sai các cột.
-        Fm = x.view(x.shape[0], self.k, self.patch_len).transpose(1, 2)   # (B, 6, 11)
+        assert x.shape[1] == self.input_features
+        if self.input_pad: x = F.pad(x, (0, self.input_pad))
+        Fm = x.view(x.shape[0], self.k, self.patch_len).transpose(1, 2)   # (B, 6, k)
         feats = [gp(stem(Fm)) for stem, gp in
                  zip(self.stems, [self.dense, self.google, self.alex, self.squeeze])]
         pooled = [f.mean(dim=-1) for f in feats]                # global average pool
@@ -174,5 +179,6 @@ def build_model(cfg, latent=False):
     the dict saved in the checkpoint, so a model rebuilt here matches the one that
     produced those weights."""
     cls = DAGSNetLatent if latent else DAGSNet
-    return cls({**{k: cfg[k] for k in CFG}, "proj_head": bool(cfg.get("proj_head", False))},
+    return cls({**{k: cfg[k] for k in CFG}, "proj_head": bool(cfg.get("proj_head", False)),
+                "input_pad": int(cfg.get("input_pad", 0))},
                n_features=cfg["n_features"], out_dim=cfg["num_classes"])
