@@ -74,6 +74,9 @@ Lịch sử từng đợt 14–20/10 (đã đẩy gì, đã xóa gì): [backup-h
 
 ## Lần gần nhất và phần còn lệch
 
+- **25/10 feature-validation branch:** GitHub branch `codex/feature-validation-arms` nhận commit `36f34d6` (code, notebooks,
+  docs và kết quả audit). Hai artifact main `fa` full66 + `fg` drop53 hiện chỉ ở workspace local (~334 MB);
+  `kaggle.dvc` chưa đổi, chưa DVC push, chưa cleanup.
 - **21/10 ~17:30Z** (owner yêu cầu backup + dọn): DVC fd-probe qua `dvc_merge_push.py` có điều tiết (dừng khi ổ cache Drive D: < 15 GB trống;
   cache Drive for Desktop = `D:\ggdrive_cached`, `df` của G: phản ánh D:, không phải quota cloud; dvc-storage trên Drive 757 GB):
   `kaggle.dvc` `381c1e32…dir` (10.777 entry, đẩy mới 71,56 GB), `input.dvc` `6ea020e5…dir` (2.644, 0 GB mới — trùng weights),
