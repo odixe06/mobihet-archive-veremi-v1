@@ -9,12 +9,12 @@ Mỗi phiên sửa trực tiếp trang này; snapshot cũ chuyển vào [archive
 | việc | chủ | trạng thái | ghi chú |
 |---|---|---|---|
 | Copy dvc-storage Google Drive → OneDrive (`copy-current-dvc.sh`) | — | không thấy process 24/10; trạng thái đích chưa audit | **không sửa** [backup](backup.md), skill repo-backup, `.dvc/config`, `scripts/dvc_*` nếu owner còn phiên backup khác |
-| Kaggle r37 v3 | `dangthiet` / `hoangdv1711` | **fg COMPLETE + AUDITED; fh/pa/pb chưa tái kiểm phiên collect này** | `fg` main-drop53 đủ 15/15 round, artifact local `artifacts/kaggle/fd-s42fg-20261015-r37-v3`; `fh` FedAvg-drop53, `pa` FedProx-full66, `pb` FedProx-drop53 giữ trạng thái lần kiểm trước. Không W&B; v1/v2 wrapper lỗi import, không dùng |
+| Kaggle feature sweep 25/10 11:32+07 | 7 account | **0 RUNNING; 18/18 arm có kết quả audited** | 17 arm đủ ep15; FedTGP-m4b `tc` dùng ep14 theo quyết định owner 25/10 vì hết cửa sổ sau prepare ~98 phút. Giữ nhãn ep14, không giả thành ep15 |
 | Kaggle | — | vòng 26 đã xong | `minhtrit06/mobihet-fd-s42cp-20261015-r31-v1` COMPLETE 19:01Z, collect + audit xong, **FAIL** |
 | Kaggle | — | không kernel nào chạy | P37 `minhtran0601/mobihet-fd-probe37-20261023-v1` COMPLETE, pull + audit 23/10 ~07:30Z |
 | Kiểm chứng main feature | `hoangdang1711` / `dangthiet` | **full66 + drop53 COMPLETE, pull + audit 25/10** | `fa` [full66](https://www.kaggle.com/code/hoangdang1711/mobihet-fd-s42fa-20261015-r32-v1) và `fg` [drop53](https://www.kaggle.com/code/dangthiet/mobihet-fd-s42fg-20261015-r37-v3) đều 15/15, 180 metric checks; artifact local dưới `builds/fd-probe/artifacts/kaggle/`. `fb` r32 và `fg` r35 lỗi, không dùng. [Kết quả](../methods/full-drift/results.md#kiểm-chứng-feature-trên-recipe-hiện-hành--seed42-ep15-audit-2510) |
-| FedAvg feature r37 | phiên hiện tại | **đủ 3 arm đã push** | `fh` drop53 r37-v3 trên dangthiet; `fc` full66 + `fe` m4b r37-v1 trên hoangdang1711, kiểm ngay sau push đều RUNNING. Không W&B, source SHA PASS. r33 cũ không dùng |
-| 3 baseline cũ + centralized feature | phiên hiện tại | **FL: 5 COMPLETE + 4 RUNNING; centralized r38: 3 RUNNING** | kiểm 25/10: FL COMPLETE pa/pb/ca/cb/cc; RUNNING pc/ta/tb/tc. Centralized recovery na/nb/nc đều RUNNING, chưa ERROR; vẫn cần COMPLETE + collect/audit. r37 centralized lỗi cũ không dùng |
+| FedAvg feature r37 | phiên hiện tại | **3/3 COMPLETE + AUDITED** | `fc/fh/fe` = full66/drop53/m4b, đều 15/15; không W&B; r33 cũ không dùng |
+| 3 baseline cũ + centralized feature | phiên hiện tại | **12/12 có kết quả audited** | FedProx 3/3, CanPerFL 3/3, Centralized 3/3; FedTGP full66/drop53 ep15, m4b `tc` ep14 accepted. Không cần rerun theo quyết định owner |
 | drop53 fix r35 | `hoangdang1711` | **lỗi, đã thay bằng r37** | main `fg` lỗi `compile_extra` truyền 66 cột vào teacher 53; không dùng kết quả. r37 sửa source và chạy lại |
 
 ## Backup 23/10 — dừng giữa chừng theo owner (owner tự push + cập nhật [backup](backup.md))

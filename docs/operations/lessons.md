@@ -30,6 +30,10 @@ Bài học ở đây là quy tắc rút ra khi chạy thí nghiệm và hạ t�
 
 ## Collect, poll và máy local
 
+- **25/10 Kaggle `COMPLETE` không chứng minh đủ horizon:** FedTGP-m4b `tc` thoát `rc=0` nhưng chỉ có 14/15 round vì prepare
+  ~98 phút cộng train ~289 phút chạm cửa sổ. Sau poll phải đọc `AUDITED.json.audits[].complete`, số marker và round cuối. Chỉ dùng
+  ep14 khi owner chấp nhận rõ, phải giữ nhãn ep14 và nêu lệch horizon; không được báo thành ep15. Với method sát giới hạn, tách
+  prepare/cache hoặc dùng continuation có checkpoint round cuối được giữ.
 - **25/10 collector phải theo layout và config của artifact, không theo giả định build cũ:** `collect_fd.py` cũ hard-code package
   ở repo root, DAGSNet 66 feature và cell W&B bắt buộc; vì vậy không thể audit r37 W&B-free/drop53 dù run hợp lệ. Import package
   từ `.compat`, cho W&B key optional, rebuild từ `weights['architecture']`, và chạy Kaggle client/PyTorch bằng đúng interpreter riêng.

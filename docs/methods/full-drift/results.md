@@ -791,3 +791,57 @@ Mỗi artifact mới: 88 file lọc, đủ 15 prediction + marker, weights round
 executed source khớp notebook push, input/source/data fingerprint khớp, weights strict-load + finite, 180 lượt
 prediction→confusion→10 metric khớp. `drop53` checkpoint rebuild đúng `n_features=53,input_pad=1`.
 Kết luận mô tả một seed: bỏ vật lý 13 feature tốt hơn full66 nhưng vẫn thấp hơn đặt 0 m4b 0,0108 macro-F1 private.
+
+## Kiểm chứng feature baseline — audit 25/10 (15/15 arm dùng được; một arm ep14)
+
+Headline của FedAvg/FedProx/Centralized là macro-F1 shared model `proxy/head/group`. FedTGP báo cả shared head và
+prototype-nearest; CanPerFL báo cả shared model round15 và personalized Fed-FN sau 10 epoch fine-tune head/client.
+Cùng seed42, `--fast --holdout_only`.
+
+| phương pháp | input | kernel | group | old | trạng thái |
+|---|---|---|---:|---:|---|
+| FedAvg | full66 | `hoangdang1711/…s42fc…r37-v1` | 0,7709 | 0,7845 | 15/15, **AUDITED** |
+| FedAvg | drop53 | `dangthiet/…s42fh…r37-v3` | 0,8949 | 0,8681 | 15/15, **AUDITED** |
+| FedAvg | m4b | `hoangdang1711/…s42fe…r37-v1` | 0,8849 | 0,8648 | 15/15, **AUDITED** |
+| FedProx | full66 | `hoangdv1711/…s42pa…r37-v3` | 0,7792 | 0,7785 | 15/15, **AUDITED** |
+| FedProx | drop53 | `hoangdv1711/…s42pb…r37-v3` | 0,8090 | 0,7930 | 15/15, **AUDITED** |
+| FedProx | m4b | `hoangdangnhi/…s42pc…r37-v4` | 0,8005 | 0,7893 | 15/15, **AUDITED** |
+| FedTGP shared / prototype | full66 | `phamquang0606/…s42ta…r37-v4` | 0,7846 / **0,7263** | 0,7799 / **0,7359** | 15/15, **AUDITED** |
+| FedTGP shared / prototype | drop53 | `qwerasdf3004/…s42tb…r37-v5` | 0,8971 / **0,7397** | 0,8696 / **0,7440** | 15/15, **AUDITED** |
+| FedTGP shared / prototype | m4b | `ttalgies/…s42tc…r37-v4` | 0,8822 / **0,7186** | 0,8572 / **0,7323** | **14/15 accepted**, AUDITED |
+| CanPerFL shared / personalized | full66 | `ttalgies/…s42ca…r37-v4` | 0,7745 / **0,7086** | 0,7806 / **0,7125** | 15/15 + Fed-FN, **AUDITED** |
+| CanPerFL shared / personalized | drop53 | `hoangdang1711/…s42cb…r37-v4` | 0,8921 / **0,7515** | 0,8667 / **0,7284** | 15/15 + Fed-FN, **AUDITED** |
+| CanPerFL shared / personalized | m4b | `hoangdang1711/…s42cc…r37-v4` | 0,8878 / **0,7578** | 0,8598 / **0,7365** | 15/15 + Fed-FN, **AUDITED** |
+| Centralized | full66 | `hoangdangnhi/…s42na…r38-v1` | 0,9258 | 0,9297 | 15/15, **AUDITED** |
+| Centralized | drop53 | `phamquang0606/…s42nb…r38-v1` | **0,9486** | 0,9197 | 15/15, **AUDITED** |
+| Centralized | m4b | `qwerasdf3004/…s42nc…r38-v1` | 0,9417 | 0,9061 | 15/15, **AUDITED** |
+
+14 artifact hoàn tất có đủ marker/prediction round1–15, weights round6/15, source/config/result/log; executed source khớp,
+weights strict-load + finite, prediction→confusion→10 metric khớp (FedTGP 60 lượt/arm, arm thường 30 lượt; CanPerFL thêm
+personalization). Số liệu là một seed và không dùng để xếp hạng khác phương pháp.
+
+**Ngoại lệ được owner chấp nhận 25/10:** FedTGP-m4b `ttalgies/…s42tc…r37-v4` có Kaggle status `COMPLETE` nhưng chỉ tạo
+round1–14; collector xác nhận chuỗi round1–14, 56 metric checks và weights round6 strict/finite. Notebook dùng ~98 phút prepare
+và ~289 phút train, chạm cửa sổ Kaggle trước round15. Dùng kết quả **ep14** trong ma trận theo yêu cầu owner; không đổi nhãn thành ep15,
+và mọi so sánh với hai arm FedTGP ep15 mang sai lệch horizon một round.
+
+10 metric `proxy/head/group` của 9 arm trong lượt pull này (8 arm ep15, `tc` ep14 accepted):
+
+| arm | Acc | P-macro | P-micro | P-weighted | R-macro | R-micro | R-weighted | F1-macro | F1-micro | F1-weighted |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| FedAvg full66 `fc` | 0,731979 | 0,786617 | 0,731979 | 0,811086 | 0,811483 | 0,731979 | 0,731979 | 0,770917 | 0,731979 | 0,721949 |
+| FedAvg m4b `fe` | 0,861572 | 0,891128 | 0,861572 | 0,888179 | 0,896614 | 0,861572 | 0,861572 | 0,884892 | 0,861572 | 0,866904 |
+| FedProx m4b `pc` | 0,797729 | 0,852705 | 0,797729 | 0,844066 | 0,799959 | 0,797729 | 0,797729 | 0,800541 | 0,797729 | 0,801794 |
+| FedTGP full66 `ta` | 0,753632 | 0,794765 | 0,753632 | 0,821928 | 0,819838 | 0,753632 | 0,753632 | 0,784550 | 0,753632 | 0,754403 |
+| FedTGP drop53 `tb` | 0,884033 | 0,901435 | 0,884033 | 0,896489 | 0,900889 | 0,884033 | 0,884033 | 0,897050 | 0,884033 | 0,887110 |
+| FedTGP m4b `tc` (**ep14**) | 0,867920 | 0,892990 | 0,867920 | 0,887135 | 0,885785 | 0,867920 | 0,867920 | 0,882168 | 0,867920 | 0,871989 |
+| Centralized full66 `na` | 0,912460 | 0,923535 | 0,912460 | 0,928912 | 0,936975 | 0,912460 | 0,912460 | 0,925769 | 0,912460 | 0,915988 |
+| Centralized drop53 `nb` | 0,938400 | 0,946368 | 0,938400 | 0,942697 | 0,951774 | 0,938400 | 0,938400 | 0,948582 | 0,938400 | 0,940065 |
+| Centralized m4b `nc` | 0,935699 | 0,948161 | 0,935699 | 0,943188 | 0,939379 | 0,935699 | 0,935699 | 0,941709 | 0,935699 | 0,938218 |
+
+CanPerFL mỗi artifact có thêm 3 file personalization: 20 model strict-load + finite, hashes weights/predictions khớp,
+20/20 client đủ applied step (min 589), skipped tối đa 1, và 2 lượt personalized prediction→confusion→10 metric khớp.
+Personalization làm macro-F1 group giảm ở cả ba input; trong output personalized, m4b cao nhất (0,7578), kế drop53 (0,7515),
+full66 thấp nhất (0,7086). Đây là kết quả phương pháp đúng như code khóa, không chọn lại shared model hậu nghiệm.
+
+Raw artifact giữ local; Git lưu executed notebook đã redacted, DVC chưa cập nhật trong lượt này.

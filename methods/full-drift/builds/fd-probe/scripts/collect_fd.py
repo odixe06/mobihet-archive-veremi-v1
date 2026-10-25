@@ -29,17 +29,55 @@ BASE = Path(__file__).resolve().parents[1]
 ROOT = BASE.parents[3]
 sys.path.insert(0, str(ROOT / '.compat'))
 from mh.dagsnet import build_model, CFG
-from mh.metrics import METRIC_KEYS, metrics_from_confusion
+from mh.metrics import METRIC_KEYS, metrics_from_confusion, per_class_from_confusion
 
 HELPER = ROOT / '.agents/skills/kaggle-training-notebook/scripts'
 KAGGLE_PYTHON = os.environ.get('KAGGLE_PYTHON', sys.executable)
 PATTERN = (r'^(source/|runs/fd_summary\.json|runs/[^/]+/(complete/|config\.json|result\.json|metrics\.csv|log\.txt|worker[0-9]+\.log|'
-           r'predictions/|weights/round_0(06|15|50)\.pt))')   # last epoch of 6-, 15- and 50-epoch arms
+           r'predictions/|personalized/|weights/round_0(06|15|50)\.pt))')   # last epoch of 6-, 15- and 50-epoch arms
 FINAL_PATTERN = r'^(source/|runs/fd_summary\.json|runs/[^/]+/(complete/|config\.json|runtime\.json|result\.json|metrics\.csv|log\.txt|worker[0-9]+\.log|predictions/|weights/|resume/))'
 
 
 def sha(p):
     return hashlib.sha256(p.read_bytes()).hexdigest()
+
+
+def audit_personalized(run, result, K):
+    folder = run / 'personalized'
+    metrics = json.loads((folder / 'metrics.json').read_text())
+    assert result['personalized'] == metrics
+    assert metrics['method'] == 'Fed-FN' and metrics['epochs'] == 10 and metrics['max_rows'] == 30_000
+    assert len(metrics['clients']) == K and [c['client'] for c in metrics['clients']] == list(range(K))
+    assert all(c['epochs'] == 10 and 0 < c['rows'] <= 30_000 and c['applied'] > 0 and c['skipped'] <= 16
+               for c in metrics['clients'])
+    predictions = folder / 'predictions.npz'; weights = folder / 'weights.pt'
+    assert sha(predictions) == metrics['predictions_sha'] and sha(weights) == metrics['weights_sha']
+    arrays = np.load(predictions); checks = 0
+    for hold, rules in metrics['eval'].items():
+        y = arrays[hold + '_y'].astype(np.int64)
+        for rule, ev in rules.items():
+            pred = arrays[f'personalized_{hold}_{rule}'].astype(np.int64)
+            assert len(pred) == K
+            cms = [np.bincount(y * 16 + p, minlength=256).reshape(16, 16) for p in pred]
+            assert all(np.array_equal(c, np.array(e)) for c, e in zip(cms, ev['confusion_clients']))
+            mm = [metrics_from_confusion(c) for c in cms]
+            assert set(ev['mean_metrics']) == set(METRIC_KEYS)
+            for key, value in ev['mean_metrics'].items():
+                assert abs(float(np.mean([m[key] for m in mm])) - value) < 1e-12, (run.name, hold, rule, key)
+            pc = np.mean([[x['f1'] for x in per_class_from_confusion(c, range(16))] for c in cms], axis=0)
+            assert np.allclose(pc, ev['f1_per_class'], atol=1e-12, rtol=0)
+            assert abs(float(pc[0]) - ev['benign_f1']) < 1e-12
+            assert abs(ev['mean_metrics']['f1_macro'] - ev['f1_macro']) < 1e-12
+            checks += 1
+    saved = torch.load(weights, map_location='cpu', weights_only=True)
+    assert len(saved['clients']) == K
+    model = build_model(saved['architecture'], latent=True)
+    assert sum(p.numel() for p in model.parameters()) == 395024
+    for state in saved['clients']:
+        model.load_state_dict(state, strict=True)
+        assert all(torch.isfinite(v).all() for v in state.values() if v.is_floating_point())
+    return dict(method=metrics['method'], clients=K, metric_checks=checks,
+                level='personalized hashes; 20 weights strict/finite; predictions->confusion->10 metrics')
 
 
 def audit_arm(run):
@@ -102,9 +140,11 @@ def audit_arm(run):
                     checks += 1
     target = (50 if run.name.endswith('_e50') else 15 if run.name.endswith('_e15') else 6) - start
     result = json.loads((run / 'result.json').read_text()) if (run / 'result.json').exists() else {}
+    personalized = audit_personalized(run, result, K) if result.get('personalized') is not None else None
     return dict(run=run.name, epochs=len(rows), complete=len(rows) == target, kept_weight_rounds=kept, metric_checks=checks, parent=parent,
                 session_complete=result.get('session_complete', len(rows) == target),
                 evaluation_pending=any(r.get('evaluation_pending') for r in rows),
+                personalized=personalized,
                 level='marker chain, pulled weights strict/finite; predictions->confusion->10 metrics when evaluated')
 
 
@@ -211,7 +251,11 @@ if __name__ == '__main__':
     sessions += [(p.name, tag) for tag in ('20261015-r24', '20261015-r25', '20261015-r28', '20261015-r30', '20261015-r31')
                  for p in sorted((BASE / 'notebooks').glob(f'fd-s4[23]*-{tag}-*')) if (p / 'source_manifest.json').exists()]
     sessions += [('fd-s42fa-20261015-r32-v1', '20261015-r32')]
-    sessions += [('fd-s42fg-20261015-r37-v3', '20261015-r37')]
+    sessions += [(f'fd-s42{s}-20261015-r37-v1', '20261015-r37') for s in ('fc', 'fe')]
+    sessions += [(f'fd-s42{s}-20261015-r37-v3', '20261015-r37') for s in ('fg', 'fh', 'pa', 'pb')]
+    sessions += [(f'fd-s42{s}-20261015-r37-v4', '20261015-r37') for s in ('pc', 'ta', 'tc', 'ca', 'cb', 'cc')]
+    sessions += [('fd-s42tb-20261015-r37-v5', '20261015-r37')]
+    sessions += [(f'fd-s42{s}-20261015-r38-v1', '20261015-r38') for s in ('na', 'nb', 'nc')]
     if args.only != '*':
         selected = [rid for rid, tag in sessions if fnmatch.fnmatch(rid, args.only)]
         assert selected, ('unknown session filter', args.only)
