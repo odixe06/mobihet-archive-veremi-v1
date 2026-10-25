@@ -74,6 +74,10 @@ Lịch sử từng đợt 14–20/10 (đã đẩy gì, đã xóa gì): [backup-h
 
 ## Lần gần nhất và phần còn lệch
 
+- **25/10 feature sweep artifacts:** GitHub branch `codex/feature-validation-arms` nhận commit `e04d2ba` với 15
+  `executed.redacted.ipynb`, collector audit và kết quả/handoff của FedAvg, FedProx, FedTGP, CanPerFL, Centralized.
+  Bốn arm synthetic r39 `sn/sp/sq/sb` và code/report tương ứng không nằm trong commit. Raw artifact vẫn local/ignored;
+  `kaggle.dvc` không đổi, chưa DVC push, chưa cleanup.
 - **25/10 feature-validation branch:** GitHub branch `codex/feature-validation-arms` nhận commit `36f34d6` (code, notebooks,
   docs và kết quả audit). Hai artifact main `fa` full66 + `fg` drop53 hiện chỉ ở workspace local (~334 MB);
   `kaggle.dvc` chưa đổi, chưa DVC push, chưa cleanup.
