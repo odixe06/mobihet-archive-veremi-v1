@@ -2,7 +2,7 @@
 # Back up a repository so authorized local cleanup remains recoverable:
 #   - code and Git history        -> origin + a Git bundle beside the DVC remote
 #   - heavy artifact directories  -> the default DVC remote
-# Run from anywhere in the repository: .claude/skills/repo-backup/backup.sh
+# Run from anywhere in the repository: .agents/skills/repo-backup/backup.sh
 #
 # Repository settings come from .dvc/config or environment variables:
 #   DVC             DVC executable (default: dvc from PATH)
@@ -21,7 +21,12 @@ REMOTE=$("$DVC" remote default)
 [ -n "$REMOTE" ] || { echo "No default DVC remote configured (dvc remote add -d ...)" >&2; exit 1; }
 URL=$("$DVC" config "remote.$REMOTE.url")
 BACKUP_DIR=${BACKUP_DIR:-$(dirname "$URL")}
-[ -d "$URL" ] || [ -d "$BACKUP_DIR" ] || { echo "Backup directory unavailable: $BACKUP_DIR; mount Drive first (e.g. sudo mount -t drvfs G: /mnt/g)" >&2; exit 1; }
+[ -d "$URL" ] || [ -d "$BACKUP_DIR" ] || { echo "Backup directory unavailable: $BACKUP_DIR; mount the configured cloud filesystem first; see docs/operations/backup.md" >&2; exit 1; }
+
+# Refuse accidental writes into the local directory underneath an unmounted cloud mount.
+if [[ "$URL" == "$HOME/Cloud/OneDrive/"* ]]; then
+  mountpoint -q "$HOME/Cloud/OneDrive" || { echo "OneDrive rclone mount unavailable" >&2; exit 1; }
+fi
 
 # 1. Add discovered artifact directories; commit only DVC/ignore metadata changes.
 read -ra roots <<< "${ARTIFACT_ROOTS:-.}"

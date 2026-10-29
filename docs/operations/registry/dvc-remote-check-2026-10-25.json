@@ -1,0 +1,14 @@
+{
+  "checked_at": "2026-10-25T18:03:08+0700",
+  "remote": "onedrive",
+  "url": "/home/odixe/Cloud/OneDrive/NCKH/veremi_build/mobihet/dvc-storage",
+  "mount_source": "onedrive: fuse.rclone",
+  "cloud_root": "onedrive:NCKH/veremi_build/mobihet/dvc-storage",
+  "probe_md5": "46d83f504e6fe5184e83a1bdcd168364",
+  "probe_bytes": 92,
+  "push": "1 file pushed",
+  "cloud_content_verified": true,
+  "pull_after_empty_cache": "A       probe.bin\n1 file fetched and 1 file added",
+  "restored_content_verified": true,
+  "scope": "One new tiny object; project manifests and existing objects unchanged. Probe object retained."
+}

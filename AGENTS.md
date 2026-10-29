@@ -74,8 +74,9 @@ Strong success criteria let you loop independently. Weak criteria ("make it work
 
 ## 6. Bắt đầu mỗi phiên
 
-**Đọc [CONTEXT.md](CONTEXT.md) (trạng thái, quyết định) rồi [LESSONS.md](LESSONS.md) (bài học kỹ thuật) và
+**Đọc [CONTEXT.md](CONTEXT.md) (trạng thái, quyết định) và
 [docs/operations/lessons.md](docs/operations/lessons.md) (bài học vận hành) trước khi làm bất cứ việc gì.**
+**Không bao giờ đọc nguyên [LESSONS.md](LESSONS.md): tìm (grep) theo chủ đề đang làm, hoặc chỉ đọc đúng các dòng cần.**
 Khi rút ra bài học mới hoặc một bài học bị bác bỏ, sửa ngay trong phiên đó: phương pháp/dữ liệu/train/đánh giá/code → LESSONS.md;
 Kaggle/notebook/pipeline, collector/máy local, Git/DVC/cloud → docs/operations/lessons.md.
 
@@ -85,7 +86,7 @@ Trước khi làm, gọi skill khớp với việc; nhiều việc khớp nhiề
 
 | việc | skill |
 |---|---|
-| bắt đầu phiên / sau tóm tắt, collect + audit kết quả, khóa cổng, đề xuất phương pháp, cập nhật design/results/bàn giao | `federated-experiment-workflow` |
+| collect + audit kết quả, khóa cổng, đề xuất phương pháp, cập nhật design/results/bàn giao | `federated-experiment-workflow` |
 | sinh notebook, upload dataset nguồn/checkpoint, quota, push kernel, nối tiếp session, pull output | `kaggle-training-notebook` |
 | theo dõi run đang chạy, health, tiến độ W&B | `wandb-training-monitor` |
 | tối ưu tốc độ code train (workers, compile, host sync, benchmark), test tương đương | `federated-training-speed` |

@@ -1,5 +1,12 @@
 # Kaggle multi-account operation
 
+Current host: read [kaggle-credentials.md](kaggle-credentials.md) first. `quota`, `health`
+and `plan` now support verified API-token-only accounts as well as OAuth snapshots. Browser
+login is only required for OAuth/global switching. No MCP/header-sync or SessionStart hook is
+installed in this checkout; dated MCP/switch recipes below are conditional historical procedures.
+Prefer `kaggle_as.py` with process-scoped credentials and live quota/slot checks.
+
+
 Use this reference when checking several saved accounts, selecting an authorized account for
 launch, or handing a run to another owner. Read the current account policy in `CONTEXT.md` and
 later user messages first. A saved credential is not by itself authorization to launch as its owner.
@@ -189,8 +196,8 @@ comes first, and why a switch immediately refreshes and re-snapshots the account
 Idle accounts are the risk: nothing exercises their refresh token until the day a rotation needs
 it, so run `health` explicitly in Codex rather than discovering it at launch time.
 
-`.claude/settings.json` has a `SessionStart` refresh hook. That is a Claude host hook, not a
-Codex skill feature, and Codex does not automatically execute it. In Codex, call `refresh` when
+A Claude `SessionStart` hook, when installed, is host-specific. No hook is installed in this checkout;
+Codex does not execute Claude hooks. In Codex, call `refresh` when
 CLI authentication needs it; do not assume a window restart refreshed OAuth.
 
 ## Runbook: the active account runs out of quota
@@ -207,7 +214,7 @@ Steps 4-5 are a report and an action, not a gate:
 3. `ensure --gpu-hours <this session's need>` without `--confirm`. Exit 0 means the active
    account pays and nothing needs saying. Exit 3 carries the proposal.
 4. Re-run the identical `ensure` with `--confirm`, then verify with
-   `scripts/verify_kaggle_identity.py <user>` before pushing anything.
+   SDK token introspection as described in [kaggle-credentials.md](kaggle-credentials.md) before pushing anything.
 5. Say in the reply which account you switched to and why, and what the switch touched (CLI
    login, `.mcp.json`, and the other host configs through `sync_kaggle_mcp.py`). Announcing is
    not asking, but it is not optional either: without it the user cannot tell which identity

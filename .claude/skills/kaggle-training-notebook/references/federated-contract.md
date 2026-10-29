@@ -10,12 +10,12 @@ and are never taken from here. User decisions override anything below.
 - Model: `knowledge/architecture.md` — standalone DAGSNet, 66 features, 16 logits, 395,024
   learnable parameters, PyTorch default initialization, seed 42. Fresh initialization unless
   the project says otherwise.
-- Train: `/home/odixe/nckh/veremi/dataset/fl_client/alpha05/{20,50,100}_client/train/client_id=NNN/`;
+- Train: local data root must be restored/configured and checked against `knowledge/dataset.md`;
   Kaggle `trietbackup/veremi-fl-20client`, `minhtriethihi/veremi-fl-50client`,
   `khanhmay0304/veremi-fl-100client` (public),
   relative roots `{20,50,100}_client/`.
   Resolve unique runtime sentinels, not a fixed mount prefix.
-- Fixed test: `/home/odixe/nckh/veremi/dataset/centralized/test`; Kaggle
+- Fixed test: restore/configure the local fixed-test root using `knowledge/dataset.md`; Kaggle
   `trietbackup/veremi-nextgen2026-test` (test only), `upload/test/` + `upload/scaler.json`.
 - Train is standardized; test is raw. Reuse the matching `scaler.json`, feature order and
   labels; verify against `knowledge/meta.json`. Only `f_*` columns enter the model.

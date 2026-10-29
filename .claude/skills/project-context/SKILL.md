@@ -16,7 +16,7 @@ Layout rules (which tier a fact belongs to) live in the `context-hub` skill; res
 
 1. **Hub.** Read it whole: problem, dated status, decisions, routing table, next actions.
 2. **Lessons files** the hub names (often split into technical and operational): read each whole; they hold the mistakes that
-   cost the most.
+   cost the most. Exception: a lessons file the project's CLAUDE.md forbids reading whole is searched (grep) for the topic at hand.
 3. **Live handoff.** Read it whole. For each row of its *running* list, confirm against the live system
    (process list, remote job status, scheduler) and note the **owner**: this session, another agent/editor session, a background
    script. Files a running job or another session owns are read-only for you until it ends.

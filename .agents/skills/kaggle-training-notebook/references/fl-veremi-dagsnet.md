@@ -88,7 +88,7 @@ The lwfednids probe of 2026-09-22 (pruned DAGSNet, 20c) adds its own row to that
 ## 4. Operating sequence (copy-paste)
 
 ```bash
-source ~/miniforge3/etc/profile.d/conda.sh && conda activate nckh
+source /home/odixe/Tools/miniconda3/etc/profile.d/conda.sh && conda activate nckh
 H=.agents/skills/kaggle-training-notebook/scripts
 python $H/kaggle_account.py quota                      # who can pay; refresh time
 python scripts/gen_notebook.py --owner <acct> --clients 20 --probe --max-hours 2   # 2-round probe + T4 micro-benchmark
@@ -109,15 +109,20 @@ new account (`stage_ckpt_dataset.py`, `kaggle datasets create -p <dir> -r zip -t
 the import (`gen_ckpt_probe.py`), then `--require-resume --dataset-source <acct>/<ds>` — see
 [multi-account.md](multi-account.md).
 
-## 5. Local test discipline (8 GB WSL, 4 GB GPU)
+## 5. Local test discipline
 
-Every test through `scripts/run_local_checked.py`, one at a time. Fixtures: 2–4 clients of
-the 100-client partition, 2–12k rows each, CPU, `compile=False`. Two CPU workers fit only
-with lazy `pyarrow` imports and batch ≤ 128; Inductor fits only in a single process
-(`tests/test_gpu_local.py`), never parent + CUDA worker. The notebook simulation runs the
-generated cells against a fake `/kaggle/input` tree (with sidecars) — CPU for training,
-`--gpu` for the calibration cell. sm_86 passing certifies the graph scheme, not sm_75;
-the probe on Kaggle is what certifies the T4.
+Read repository-root `knowledge/local-env.md` for the current local OS, RAM/swap,
+GPU and environment. The 8 GB WSL limits below were measured on an older host;
+they are historical fixture guidance, not the current machine's capacity.
+
+Run local tests through repository-root `scripts/run_local_guarded.py`, one heavy
+test process tree at a time. Start with 2–4 clients and 2–12k rows each, CPU,
+`compile=False`; measure available RAM before increasing fixtures or workers.
+Keep the documented watchdog threshold. Historical two-worker tests needed lazy
+`pyarrow` imports and batch ≤ 128; remeasure on the current host before claiming
+larger fixtures fit. The notebook simulation uses a fake `/kaggle/input` tree
+(with sidecars): CPU for training, `--gpu` for calibration. A local sm_86 pass
+certifies the graph scheme; the Kaggle probe certifies sm_75/T4 behavior.
 
 ## 6. Per-client models on the GLOBAL test peak early (measured 2026-09-13, sibling rebuild)
 

@@ -41,6 +41,8 @@ Inspect candidate artifact paths and their sizes. Look for partial downloads, te
 
 Ensure the configured remote is mounted and reachable. Activate the environment containing `dvc`, or set `DVC` to its executable path when using the helper.
 
+For the current host, resolve paths and mount requirements from the backup record. Do not assume Windows/WSL or OneDrive Desktop.
+
 For a OneDrive filesystem remote:
 
 - Check free space on the local sync volume separately from OneDrive cloud quota. Files On-Demand allows archived data

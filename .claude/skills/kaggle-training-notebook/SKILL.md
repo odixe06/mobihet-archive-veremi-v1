@@ -3,6 +3,18 @@ name: kaggle-training-notebook
 description: Build, push, resume and collect PyTorch training notebooks on Kaggle (2x T4) -- generate notebooks and kernel metadata, stage source/checkpoint datasets, read quota and pick accounts, push per account with kaggle_as.py, continue across sessions, pull outputs, verify artifacts and report all 10 classification metrics. Use whenever work touches Kaggle kernels, quota, push/pull, session resume or Kaggle run artifacts (e.g. "push kernel", "chạy trên Kaggle", "kiểm quota", "kéo/collect kết quả", "nối tiếp session", "chạy 50 round"). Not for local-only data exploration; for training speed use federated-training-speed.
 ---
 
+## Current checkout (2026-10-27)
+
+Kaggle CLI is pinned to **2.2.5** in `environment.yml`. For a historical run, use
+`<owner>/<slug>/<version>` consistently for status, files, output and source pulls.
+The output helper preserves that version across every listing page. CLI 2.2.5
+streams/resumes downloads; the helper still traverses all pages automatically and
+checks missing files. Verify expected artifacts after either path.
+`kernels push --no-run` saves a version without execution; it does not cancel a worker.
+
+Read repository-root `knowledge/local-env.md` for the measured local hardware/runtime. Short tasks run locally; multi-hour tasks run on Kaggle. The current checkout is `/home/odixe/project/mobihet`; use `nckh`.
+Choose an account by live quota and available GPU session slots, not a fixed default. Use process-scoped credentials and leave the global login unchanged. Read `references/kaggle-credentials.md` before using token-only accounts; Quota/health/plan support token-only accounts; global OAuth switches still require snapshots. Environment setup does not authorize a new GPU launch.
+
 ## Paths
 
 This file is the skill. Resolve every relative path below from this directory: helper scripts
@@ -105,7 +117,7 @@ projects). A long job started locally competes for RAM with everything else and 
    is not an account with GPUs -- zero-GPU allocation has been account-scoped here before, and
    only a run proves it. Script creation does not itself authorize launching runs.
 7. Pull bulk output with `scripts/pull_kernel_output.py` through `scripts/kaggle_as.py <owner>`
-   (parallel, resumable, non-zero exit on gaps, ~5x the CLI; one process per kernel, ~32 connections
+   (parallel, resumable, all-page listing, non-zero exit on gaps; one process per kernel, ~32 connections
    in total); account credentials stay process-scoped. Require exit 0 before artifact verification.
    For operation/recovery read [pull-outputs.md](references/pull-outputs.md),
    [stop-session.md](references/stop-session.md), and only if needed

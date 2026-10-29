@@ -4,4 +4,4 @@
 [cache]
     type = "hardlink,copy"
 ['remote "onedrive"']
-    url = /mnt/d/OneDrive/NCKH/veremi_build/mobihet/dvc-storage
+    url = /home/odixe/Cloud/OneDrive/NCKH/veremi_build/mobihet/dvc-storage

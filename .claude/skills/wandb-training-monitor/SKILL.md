@@ -1,6 +1,6 @@
 ---
 name: wandb-training-monitor
-description: Monitor and analyse active or completed Weights & Biases training runs read-only: progress, heartbeat and liveness against Kaggle status, health tripwires (loss, AMP skip rate, gradient norm, non-finite values), per-round metrics and ETA. Use right after pushing runs, when asked whether a run is alive, healthy or progressing, or to read live metrics before artifacts exist (e.g. "theo dõi W&B", "run còn chạy không", "tiến độ", "health check", "kiểm W&B"). Does not start, stop or modify runs.
+description: "Monitor and analyse active or completed Weights & Biases training runs read-only: progress, heartbeat and liveness against Kaggle status, health tripwires (loss, AMP skip rate, gradient norm, non-finite values), per-round metrics and ETA. Use right after pushing runs, when asked whether a run is alive, healthy or progressing, or to read live metrics before artifacts exist (e.g. \"theo dõi W&B\", \"run còn chạy không\", \"tiến độ\", \"health check\", \"kiểm W&B\"). Also handles explicitly requested local W&B credential setup. Does not start, stop or modify runs."
 ---
 
 # W&B Training Monitor
@@ -10,6 +10,20 @@ not authorize changing config, resuming, stopping, deleting, or pushing anything
 
 Read `CONTEXT.md` and its later dated updates before selecting a run. Use the callable tools
 of the current session or the local helper below. Timestamp live observations and distinguish them from verified final artifacts.
+
+## Explicitly requested local credential setup
+
+When the owner supplies a key and asks to keep it for future sessions, store it
+with the W&B credential mechanism in `~/.netrc` for `api.wandb.ai`, mode `0600`,
+preserving other machine entries. Pass the secret through a non-echoing input
+channel, never a shell argument or document. This setup is authorized by that
+request; run monitoring remains read-only.
+
+Verify a new process can authenticate using stored credentials (for example a
+read-only GraphQL `viewer` query or the installed SDK). Report only success,
+account identity and file permissions. Check whether `WANDB_API_KEY` overrides
+the stored key; do not print either value. Local credentials are not automatically
+available inside Kaggle notebooks.
 
 ## Authentication and target
 
@@ -27,7 +41,7 @@ latest run when that could select a different experiment.
 
 ```bash
 conda run -n nckh python \
-  .claude/skills/wandb-training-monitor/scripts/inspect_run.py \
+  .agents/skills/wandb-training-monitor/scripts/inspect_run.py \
   --run ENTITY/PROJECT/RUN_ID
 ```
 

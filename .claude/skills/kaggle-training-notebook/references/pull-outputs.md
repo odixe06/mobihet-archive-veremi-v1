@@ -1,6 +1,6 @@
 # Pulling outputs back
 
-Kaggle output is transient — the kernel's files live only as that version's committed output, and a later push overwrites them. Everything the run produced comes home to `papers/<slug>/runs/<run_name>/`.
+Kaggle output belongs to a committed kernel version. Pin `<owner>/<slug>/<version>` when collecting historical evidence; an unversioned request follows the latest version after another push. Everything the run produced comes home to `papers/<slug>/runs/<run_name>/`.
 
 Pull **whenever the kernel leaves `running`** — on `complete` *and* on `error`. An errored kernel still commits the files it wrote before dying, so pulling on failure is what recovers the checkpoints that make the next attempt resume instead of restart. Skipping the pull on failure is the single easiest way to lose a night of training.
 
@@ -63,22 +63,24 @@ A pulled notebook with zero rendered outputs is a signal, not a file to quietly 
 
 ## How
 
-1. **Bulk output: `scripts/pull_kernel_output.py`, not `kaggle kernels output`, not MCP.**
+1. **Bulk output: prefer `scripts/pull_kernel_output.py` for complete multi-page collections.**
    ```bash
-   python .claude/skills/kaggle-training-notebook/scripts/kaggle_as.py <owner> -- \
-     python .claude/skills/kaggle-training-notebook/scripts/pull_kernel_output.py <owner>/<slug> -p <dest> -j 16 [--pattern REGEX]
+   python .agents/skills/kaggle-training-notebook/scripts/kaggle_as.py <owner> -- \
+     python .agents/skills/kaggle-training-notebook/scripts/pull_kernel_output.py <owner>/<slug> -p <dest> -j 16 [--pattern REGEX]
    ```
-   Why (kaggle 2.2.4, read from the installed source 2026-10-05): `kernels output` lists 20 files per page and downloads
-   them **one at a time** with `requests.get(url).content` — no timeout (a stalled socket hangs the pull), no retry,
-   whole file in RAM, written straight to the final name. Every listed file carries its own signed storage URL, so
-   files can be fetched in parallel. The script lists once (200/page), streams each file to `<name>.part` with
-   timeout + retry, renames only when the byte count equals `Content-Length`, skips files already local at the remote
-   size (re-running resumes), resumes interrupted `.part` files with validated HTTP Range when supported, refreshes the listing when signed URLs expire, and **exits non-zero if any file is
-   missing** — gate on that, not on the CLI's exit 0. The kernel log lands at `<dest>/<slug>.log` like the CLI's.
+   Current baseline (2026-10-27): Kaggle CLI **2.2.5** streams/resumes downloads, checks HTTP
+   status/size and uses a finite read timeout. Explicit kernel versions are honored. Its output command
+   handles one listing page per invocation (default 20 files); the helper automatically traverses all
+   pages (200/page), downloads in parallel, uses `.part` + validated HTTP Range, refreshes expired
+   signed URLs and exits non-zero on missing listed files. Both paths still require comparison with
+   the run's expected artifact inventory. CLI is suitable for small known single-page pulls; explicitly
+   page larger collections or use the helper. Pin `<owner>/<slug>/<version>` for immutable evidence.
+   Helper regression tests cover the version label on every page, incomplete bodies and Range recovery.
+   The log is saved as UTF-8 at `<dest>/<slug>.log`.
 
    MCP (`download_notebook_output*`) goes through the single account the host is connected to and returns the
    artifact through a tool call — fine for one small file, wrong for GB of checkpoints or for several owners at once.
-   Use MCP/CLI only when the script cannot run (e.g. no CLI OAuth).
+   Use process-scoped credentials for CLI/helper calls; MCP uses its connected account.
 
    **Measured 2026-10-05** (WSL, 33 MB weight files, same machine, two other pulls running):
 
@@ -111,7 +113,7 @@ A pulled notebook with zero rendered outputs is a signal, not a file to quietly 
 
    ```bash
    conda run -n nckh python \
-     .claude/skills/kaggle-training-notebook/scripts/download_executed_notebook.py \
+     .agents/skills/kaggle-training-notebook/scripts/download_executed_notebook.py \
      <owner>/<kernel-slug> --output papers/<slug>/notebook/<name>.executed.ipynb
    ```
 
@@ -153,8 +155,8 @@ def verify_pull(run_dir: Path, expected_rounds: int):
 `pull_kernel_output.py` never gives a partial file its final name and exits non-zero on any gap; the notes below are
 why, and still apply to any pull made with the CLI.
 
-`kaggle kernels output` exits 0 while files are still missing **and** can leave **zero-byte
-files** behind when a pull is interrupted. Both were seen on one run (2026-09-10): the first pull
+Historical CLI behavior (observed 2026-09-10, before 2.2.5): output could exit 0 with missing
+files or leave zero-byte files after interruption. In that run: the first pull
 of a 50-round scenario returned 35 weight filenames, of which one was 0 bytes, and 15 rounds were
 absent entirely. An inventory that counts filenames reports 35/50 and silently blesses a corrupt
 file; the round with the empty checkpoint only fails much later, at load or integrity-check time.
@@ -221,7 +223,7 @@ builds should not have to reassemble it. Provenance is kept, but it is kept *ins
 merged run rather than as parallel trees.
 
 ```bash
-conda run -n nckh python .claude/skills/kaggle-training-notebook/scripts/merge_sessions.py \
+conda run -n nckh python .agents/skills/kaggle-training-notebook/scripts/merge_sessions.py \
   --out runs_merged pull_session1/ pull_session2/
 ```
 

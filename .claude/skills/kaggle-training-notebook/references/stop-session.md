@@ -46,8 +46,10 @@ the `KGAT_` bearer used here does not carry the cancel scope. Do not substitute 
 metadata ID for a session ID, and do not read a permission error as "wrong id" — try it at most
 once, then go manual.
 
-As of Kaggle CLI 2.2.4, `KaggleApi.cancel_kernel_run(owner, slug)` does not exist. The CLI can
-prove status but cannot cancel:
+Rechecked in Kaggle CLI 2.2.5 on 2026-10-27, `KaggleApi.cancel_kernel_run(owner, slug)` does not exist. The CLI can
+prove version status but cannot cancel. `kernels push --no-run` only saves a new version without
+starting it; it does not stop an existing worker. Keep the notebook budget/stall guard:
+
 
 ```bash
 conda run -n nckh kaggle kernels status <owner>/<kernel-slug>

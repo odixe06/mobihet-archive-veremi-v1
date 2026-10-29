@@ -13,8 +13,9 @@ per-record activation/gradient rời client. Heterogeneous R2 thực nghiệm v�
 
 - **Bàn giao sống duy nhất:** [continue](docs/operations/continue.md) — đang chạy gì, bước tiếp, lệnh, việc tay. Sửa tại chỗ;
   snapshot cũ vào [archive/operations](docs/archive/operations/README.md). Cách đọc/ghi context: skill `project-context`.
-- **Đang chạy:** phiên Codex của owner copy dvc-storage Google Drive → OneDrive (remote DVC mặc định đã là `onedrive`, xem [backup](docs/operations/backup.md));
-  **không sửa** phần trạng thái chuyển trong backup, skill repo-backup, `.dvc/config`, `scripts/dvc_*` khi phiên đó còn chạy. Không job local/Kaggle nào chạy.
+- **Job local — kiểm 26/10:** không thấy train/collector/copy DVC của MobiHet; có tác vụ dự án khác và rclone mount, không can thiệp.
+  Bảng copy DVC 23/10 là lịch sử trong [continue](docs/operations/continue.md); remote backup ở [backup](docs/operations/backup.md).
+  Trạng thái kernel Kaggle chưa kiểm lại trong phiên cập nhật môi trường.
 - Phương pháp chốt: `gkd + la + kdpx`, proxy q3_zl (PASS seed42/43). [Kết quả/cổng](docs/methods/full-drift/results.md), [thiết kế](docs/methods/full-drift/design.md).
 - **Run cuối seed42 xong:** 6 chuỗi (q3_zl la_kdpx + đối chứng gkd × 20/50/100 client) × 50 round, chấm toàn test20 mỗi round, headline r50,
   đã audit — [report](docs/methods/full-drift/results/final/report.md), [VERIFIED](docs/methods/full-drift/results/final/VERIFIED.json). Không repull/re-audit.
@@ -39,6 +40,12 @@ per-record activation/gradient rời client. Heterogeneous R2 thực nghiệm v�
   `QUEUED` = chờ GPU; `RUNNING`/`COMPLETE`/W&B không chứng minh kết quả — collect + audit artifact. `datasets create` có thể báo lỗi dù ready.
 - Freeze mọi source/notebook đã PUSHED; sửa bằng tag mới. Không nối adaptation FAIL y nguyên. Không Git/DVC push/backup/cleanup khi owner
   chưa yêu cầu. Credentials account-scoped, giữ global login thuyanh316; inline W&B chỉ ở private notebook 0600. Không rõ yêu cầu ⇒ hỏi owner.
+
+## Host hiện tại — kiểm tra 26/10/2026
+
+Lubuntu/LXQt, env `nckh`; cấu hình máy và đường dẫn dataset ORICO: [local-env](knowledge/local-env.md).
+DVC dùng rclone OneDrive tại `~/Cloud/OneDrive`, xem [backup](docs/operations/backup.md).
+Nguồn dataset local và remote backup là hai vị trí riêng; không kế thừa đường dẫn máy cũ.
 
 ## Phiên sau
 

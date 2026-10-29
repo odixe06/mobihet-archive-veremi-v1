@@ -6,7 +6,7 @@ dữ liệu và cùng hạ tầng. Vì thế nó chỉ chứa những gì **khô
 ## Được ghi ở đây
 
 - Thuộc tính của **dữ liệu**: cột, scaler, số dòng, phân bố lớp, thống kê phân mảnh theo client.
-- Thuộc tính của **máy local**: RAM/GPU, ngưỡng an toàn, cách chạy test không làm sập WSL.
+- Thuộc tính của **máy local**: RAM/GPU, ngưỡng an toàn, cách chạy test không làm cạn RAM.
 - Thuộc tính của **hạ tầng dùng chung**: digest image Kaggle đã kiểm, trạng thái public/private
   của các dataset đầu vào, cách đổi tài khoản.
 - Kiến trúc mô hình dùng chung cho nhiều phương pháp.
@@ -29,3 +29,5 @@ kiểm. Đó là cách một lựa chọn thiết kế bị nhầm thành thuộ
 Ví dụ đã xảy ra (đã sửa 2026-09-08): bảng "ước lượng μ" và bảng chi phí truyền tin theo `s = 50`
 từng nằm trong `dataset.md`. Cả hai phụ thuộc TinyProto; đã chuyển sang
 `papers/tinyproto-lee-2026/rebuild.md` §8. Thống kê `n_ij` gốc thì ở lại, vì đó là dữ liệu.
+
+Máy local hiện tại: [local-env.md](local-env.md).

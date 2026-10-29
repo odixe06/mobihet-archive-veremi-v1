@@ -48,7 +48,7 @@ Run the bundled deterministic script in `nckh`:
 
 ```bash
 conda run -n nckh python \
-  .claude/skills/kaggle-training-notebook/scripts/make_report_figures.py \
+  .agents/skills/kaggle-training-notebook/scripts/make_report_figures.py \
   --run-dir papers/<slug>/runs/<run_name>
 ```
 

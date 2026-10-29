@@ -1,8 +1,31 @@
 # Git / DVC — backup và khôi phục
 
+## Host hiện tại — kiểm push/pull 25/10/2026
+
+- OneDrive được mount bằng **rclone VFS** tại `/home/odixe/Cloud/OneDrive`; không dùng OneDrive Desktop.
+- Remote DVC mặc định `onedrive`: `/home/odixe/Cloud/OneDrive/NCKH/veremi_build/mobihet/dvc-storage`.
+- Đã thử DVC 3.67.1: push một object mới 92 byte, đọc trực tiếp bằng `rclone cat` từ cloud khớp nội dung,
+  xóa cache của **repo thử riêng**, pull lại và so byte thành công.
+  [Bằng chứng](registry/dvc-remote-check-2026-10-25.json); không sửa manifest hoặc đẩy toàn bộ dữ liệu dự án.
+- Trước mỗi push kiểm mount: `findmnt --mountpoint /home/odixe/Cloud/OneDrive` phải báo `onedrive: fuse.rclone`.
+  Nếu mount mất, dừng; không tạo thư mục thay thế vì có thể ghi nhầm vào ổ local.
+- Mount dùng `--vfs-cache-mode full`; push thành công chỉ xác nhận ghi qua VFS. Với dữ liệu mới cần kiểm upload
+  cloud riêng bằng rclone; lần thử nhỏ trên đã xác minh cloud thật. Không xóa VFS upload cache.
+- Kiểm lại khi cần, từ gốc repo trong env `nckh`:
+
+  ```bash
+  python scripts/check_dvc_remote.py \
+    --cloud-root onedrive:NCKH/veremi_build/mobihet/dvc-storage \
+    --output /tmp/mobihet-dvc-remote-check.json
+  ```
+
+  Mỗi lần thử ghi một object nhỏ mới và giữ nó. Không coi phép thử nhỏ là audit toàn bộ backup lịch sử.
+- Bundle mới dùng thư mục cha remote: `/home/odixe/Cloud/OneDrive/NCKH/veremi_build/mobihet/mobihet.bundle`.
+  Chính sách giữ ref bundle và checkpoint đã nghỉ ở dưới vẫn áp dụng. Chưa tạo/push bundle trong phiên thiết lập.
+
 ## MobiHet — trạng thái backup 24/10/2026 22:26 (UTC+7)
 
-- **Đích push mới:** DVC mặc định `onedrive`, `/mnt/d/OneDrive/NCKH/veremi_build/mobihet/dvc-storage`.
+- **Đích push mới:** DVC mặc định `onedrive`, `/home/odixe/Cloud/OneDrive/NCKH/veremi_build/mobihet/dvc-storage`.
   Git vẫn GitHub; helper/skill `.agents` và `.claude` đã cập nhật. Nguồn Google Drive của MobiHet đã dọn sau xác minh.
 - **Git:** source/docs/notebooks, manifest merge giữ entry remote-only và index phục hồi checkpoint tại `ed97aff` đã push.
   Hồ sơ này cập nhật bằng commit tài liệu riêng trên `main`; kiểm GitHub khớp HEAD sau push.
@@ -44,9 +67,9 @@ Lịch sử từng đợt 14–20/10 (đã đẩy gì, đã xóa gì): [backup-h
 ## Đích
 
 - Git: `git@github.com:odixe06/mobihet.git`, nhánh `main`. Kiểm `git ls-remote origin refs/heads/main` = `git rev-parse HEAD`.
-- DVC remote mặc định `onedrive`: `/mnt/d/OneDrive/NCKH/veremi_build/mobihet/dvc-storage` (layout DVC 3 `files/md5`).
+- DVC remote mặc định `onedrive`: `/home/odixe/Cloud/OneDrive/NCKH/veremi_build/mobihet/dvc-storage` (layout DVC 3 `files/md5`).
   Phạm vi MobiHet đã kiểm cloud ghi ở trạng thái đầu trang; checkpoint nghỉ được phục hồi qua index Kaggle.
-- Bundle cho các lần backup sau: `/mnt/d/OneDrive/NCKH/veremi_build/mobihet/mobihet.bundle` (`--all`, verify trước khi thay atomic).
+- Bundle cho các lần backup sau: `/home/odixe/Cloud/OneDrive/NCKH/veremi_build/mobihet/mobihet.bundle` (`--all`, verify trước khi thay atomic).
   Giữ các ref lịch sử trong bundle hiện có khi cập nhật; nguồn bundle G: đã dọn sau xác minh.
 - Repo lưu trữ cũ: `odixe06/mobihet-archive-b9-b21`, tag `archive-3` (giữ nguyên). Kiểm cloud sync OneDrive riêng với việc ghi vào thư mục D:.
 
@@ -90,7 +113,7 @@ Chạy từ gốc repo cần khôi phục; thay `<owner>` bằng phần trước
 Helper account-scoped dùng từ checkout MobiHet; không đổi tài khoản Kaggle toàn cục.
 
 ```bash
-MOBIHET=/home/odixe/nckh/veremi/mobihet
+MOBIHET=/home/odixe/project/mobihet
 KAGGLE_AS="$MOBIHET/.agents/skills/kaggle-training-notebook/scripts/kaggle_as.py"
 
 # Repo MobiHet hiện tại:

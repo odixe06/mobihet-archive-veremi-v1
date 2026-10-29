@@ -1,12 +1,12 @@
 ---
 name: federated-experiment-workflow
-description: Resume federated-learning research sessions and run the experiment loop around Kaggle builds: read the project hub, lessons and current handoff, inventory running and finished sessions, collect and audit completed runs against locked gates, record problem evidence -> mechanism -> falsifiable sign before proposing a method, and update per-method design/results/lessons and the handoff. Use at session start or after a summary/compaction, when collecting or auditing results, locking gates, proposing or comparing methods, or updating research docs (e.g. "đọc CONTEXT", "bàn giao", "collect/audit kết quả", "đề xuất phương pháp", "cập nhật results/design"). Does not authorize training launches, backup, deletion, Git or DVC pushes.
+description: "Run the federated-learning experiment loop around Kaggle builds: inventory running and finished sessions, collect and audit completed runs against locked gates, record problem evidence → mechanism → falsifiable sign before proposing a method, and update per-method design/results/lessons and the handoff. Use when collecting or auditing results, locking gates, proposing or comparing methods, or updating research docs (e.g. \"bàn giao\", \"collect/audit kết quả\", \"đề xuất phương pháp\", \"cập nhật results/design\"). Does not authorize training launches, backup, deletion, Git or DVC pushes."
 ---
 
 # Federated experiment workflow
 
-Read the repository's `CONTEXT.md`, then `LESSONS.md`, then the linked current handoff. Later owner decisions override
-older documents. Resolve uncertain scientific choices before dependent training; continue independent authorized work.
+Session-start reading is the `project-context` skill's job; do not repeat it. Search `LESSONS.md` for the topic at hand
+(grep) instead of reading it whole. Later owner decisions override older documents. Resolve uncertain scientific choices before dependent training; continue independent authorized work.
 
 ## Choose the branch
 

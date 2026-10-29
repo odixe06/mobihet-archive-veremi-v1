@@ -5,10 +5,13 @@ nằm cạnh nó, chạy ngày **2026-09-07** trên `/home/odixe/nckh/veremi/dat
 README hay sidecar mà không đối chiếu. Dùng file này thay cho việc quét lại dữ liệu ở phiên sau —
 bộ dữ liệu này **cố định**, các build tiếp theo dùng đúng bộ này.
 
-Dựng lại toàn bộ số liệu:
+Đường dẫn nguồn hiện tại theo owner: `/run/media/odixe/ORICO/nextgen`; môi trường
+Lubuntu/LXQt và Conda ở [local-env](local-env.md). Đường dẫn đầu trang là provenance lần audit 07/09.
+Hai script audit cũ dưới đây còn hardcode root và đường dẫn metadata của máy cũ;
+phải cập nhật các hằng đường dẫn trước khi chạy lại, không dùng nguyên lệnh như audit hiện tại:
 
 ```bash
-source /home/odixe/miniforge3/etc/profile.d/conda.sh && conda activate nckh
+source /home/odixe/Tools/miniconda3/etc/profile.d/conda.sh && conda activate nckh
 python knowledge/audit_dataset.py     # ~4 phút, ghi dataset_audit.json
 python knowledge/fl_class_stats.py    # ~1 giây,  ghi fl_class_stats.json
 ```
@@ -153,8 +156,8 @@ Cả hai vừa trong một T4 16 GB cùng model, Adam state và activation. Đâ
 
 | | local | Kaggle (public) |
 |---|---|---|
-| train FL | `/home/odixe/nckh/veremi/dataset/fl_client/alpha05/{20,50,100}_client/train/client_id=NNN/` | `trietbackup/veremi-fl-20client`, `minhtriethihi/veremi-fl-50client`, `khanhmay0304/veremi-fl-100client` |
-| test toàn cục | `/home/odixe/nckh/veremi/dataset/centralized/test/part-0000{0..3}.parquet` | `trietbackup/veremi-nextgen2026-test`, thư mục `upload/test/` |
+| train FL | `/run/media/odixe/ORICO/nextgen/fl_client/alpha05/{20,50,100}_client/train/client_id=NNN/` | `trietbackup/veremi-fl-20client`, `minhtriethihi/veremi-fl-50client`, `khanhmay0304/veremi-fl-100client` |
+| test toàn cục, bản đóng gói | `/run/media/odixe/ORICO/nextgen/upload/test/part-0000{0..3}.parquet` | `trietbackup/veremi-nextgen2026-test`, thư mục `upload/test/` |
 | scaler / meta | `knowledge/scaler.json`, `knowledge/meta.json` | `upload/scaler.json` trong dataset test |
 
 ### 5.1 Bốn dataset Kaggle
@@ -174,7 +177,7 @@ song. **Kiểm 2026-09-29:** cả bốn `ready`; danh sách file trên Kaggle (m
 Dataset test **chỉ có test**, không có `upload/train/`. Phương pháp nào cần train tập trung
 phải upload riêng phần đó.
 
-Upload lại: một zip `ZIP_STORED` mỗi dataset dựng từ `/home/odixe/nckh/veremi/dataset/`, arcname
+Upload lại: một zip `ZIP_STORED` mỗi dataset dựng từ `/run/media/odixe/ORICO/nextgen/`, arcname
 = đường dẫn tương đối ở bảng trên, `kaggle datasets create -p <dir> --public`.
 
 ### 5.2 Hệ quả cần nhớ

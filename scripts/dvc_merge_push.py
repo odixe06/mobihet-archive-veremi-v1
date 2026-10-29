@@ -61,4 +61,7 @@ def merge(dvcfile):
 
 
 if __name__ == '__main__':
+    mount = Path.home() / 'Cloud/OneDrive'
+    if REMOTE.is_relative_to(mount) and not os.path.ismount(mount):
+        raise SystemExit('OneDrive rclone mount unavailable; refusing local fallback writes')
     for f in sys.argv[1:]: merge(f)

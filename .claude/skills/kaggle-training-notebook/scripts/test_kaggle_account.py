@@ -84,6 +84,57 @@ class AccountTests(unittest.TestCase):
         creds.refresh_access_token.assert_not_called()
         self.assertEqual(before, {p: p.read_bytes() for p in before})
 
+    def test_token_only_quota_preserves_login_and_subtracts_reservations(self):
+        helper.creds_path("bob").unlink()
+        before = self.live.read_bytes()
+        client = MagicMock()
+        quota = SimpleNamespace(total_time_allowed=timedelta(hours=30),
+                                time_used=timedelta(hours=10), time_reserved=timedelta(hours=16))
+        client.kernels.kernels_api_client.get_accelerator_quota_statistics.return_value = SimpleNamespace(
+            gpu_quota=quota, tpu_quota=None, quota_refresh_time=None)
+        build = MagicMock(return_value=client)
+        modules = {
+            "kaggle.api.kaggle_api_extended": SimpleNamespace(KaggleApi=SimpleNamespace(
+                build_kaggle_client_with_params=build)),
+            "kagglesdk.kaggle_client": SimpleNamespace(KaggleClient=MagicMock()),
+            "kagglesdk.kaggle_creds": SimpleNamespace(KaggleCredentials=MagicMock()),
+            "kagglesdk.kernels.types.kernels_api_service": SimpleNamespace(
+                ApiGetAcceleratorQuotaStatisticsRequest=MagicMock()),
+        }
+        with patch.dict("sys.modules", modules), patch.object(helper, "saved_api_token", return_value="FAKE_API") as token:
+            self.assertEqual(helper.account_quota("bob")["gpu_left"], 4)
+            token.assert_called_once_with("bob")
+        self.assertEqual(build.call_args.kwargs["api_token"], "FAKE_API")
+        self.assertEqual(self.live.read_bytes(), before)
+
+    def test_api_token_rejects_inactive_or_mislabelled_identity(self):
+        client = MagicMock()
+        identity = SimpleNamespace(active=True, username="bob")
+        client.security.oauth_client.introspect_token.return_value = identity
+        modules = {
+            "kaggle.api.kaggle_api_extended": SimpleNamespace(KaggleApi=SimpleNamespace(
+                build_kaggle_client_with_params=MagicMock(return_value=client))),
+            "kagglesdk.security.types.oauth_service": SimpleNamespace(IntrospectTokenRequest=MagicMock()),
+        }
+        with patch.dict("sys.modules", modules):
+            self.assertEqual(helper.saved_api_token("bob"), "KGAT_bob")
+            identity.username = "alice"
+            with self.assertRaises(RuntimeError): helper.saved_api_token("bob")
+            identity.username = "bob"; identity.active = False
+            with self.assertRaises(RuntimeError): helper.saved_api_token("bob")
+
+    def test_token_only_health_and_survey_do_not_require_oauth(self):
+        helper.creds_path("bob").unlink()
+        before = self.live.read_bytes()
+        with patch.object(helper, "account_quota", side_effect=lambda u: self.q(u, 30)):
+            quotas, failures = helper.survey()
+        self.assertIn("bob", quotas)
+        self.assertFalse(failures)
+        with patch.object(helper, "snapshot_identity", return_value="alice"), \
+                patch.object(helper, "saved_api_token", return_value="FAKE_API"):
+            self.assertEqual(helper.cmd_health(argparse.Namespace(quiet=True)), 0)
+        self.assertEqual(self.live.read_bytes(), before)
+
     def test_ensure_keeps_sufficient_active_and_only_switches_when_needed(self):
         quotas = {"alice": self.q("alice", 7), "bob": self.q("bob", 30)}
         with patch.object(helper, "survey", return_value=(quotas, {})), \

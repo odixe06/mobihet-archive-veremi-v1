@@ -29,12 +29,13 @@ file archive còn trong source fingerprint của snapshot cũ thì không xóa, 
 
 ## Lớp tương thích `.compat` và fresh checkout
 
-- Python local tìm `mh` qua `/home/odixe/miniforge3/envs/nckh/lib/python3.12/site-packages/mobihet-compat.pth` (một dòng: đường dẫn `.compat`).
+- Python local tìm `mh` qua `/home/odixe/Tools/miniconda3/envs/nckh/lib/python3.12/site-packages/mobihet-compat.pth` (một dòng: đường dẫn `.compat`).
   `.compat/mh/*.py` là hardlink tới `core/` ⇒ byte/SHA 40 module không đổi, `mh.pilot.ROOT = .compat`.
 - Script local dùng `ROOT/'.compat/papers/...'`, `ROOT/'.compat/mh'`; đường dẫn Kaggle (`WORK/'papers/...'`) giữ nguyên.
   Build archive không sửa: chạy lại cần tạm `ln -s .compat/papers papers`.
 - Fresh checkout: `python3 scripts/restore_compat_aliases.py` (symlink + hardlink từ [map](registry/compatibility-aliases.json),
   không ghi đè source, không pull data), rồi tạo lại file `.pth` trong env `nckh`.
+- Cấu hình Lubuntu/LXQt, RAM/swap/GPU, env và đường dẫn dataset local hiện tại: [local-env](../../knowledge/local-env.md).
 - Source frozen giữ byte và tên file gốc khi dựng runtime; tên canonical có thể khác tên import. Không sửa scientific code để che lỗi đường dẫn.
 - Di chuyển tài liệu: `python scripts/move_docs.py moves.json [--dry]` (mv + sửa mọi link Markdown tương đối; chuỗi đường dẫn trong script phải sửa tay).
 

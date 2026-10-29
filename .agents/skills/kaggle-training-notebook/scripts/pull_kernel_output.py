@@ -3,9 +3,9 @@
 
     python kaggle_as.py <owner> -- python pull_kernel_output.py <owner>/<slug> -p <dest> [-j 8] [--pattern REGEX]
 
-Why not the CLI: kaggle 2.2.4 `kernels output` lists 20 files per API page and downloads them ONE AT A TIME with
-`requests.get(url).content` -- no timeout (a stalled socket hangs forever), no retry, the whole file in RAM, and it
-writes straight to the final name (an interrupted pull leaves a truncated file that a later run may skip).
+Kaggle 2.2.5 streams/resumes output downloads and honors explicit kernel versions. Its CLI still handles one
+listing page per invocation. This helper keeps automatic all-page traversal, parallel transfers and a final
+missing-file exit gate. Use owner/slug/version when collecting an immutable historical run.
 
 Here: list every file once (each entry carries its own signed URL), then a thread pool streams files to `<name>.part`
 and renames only when the byte count equals Content-Length. Files already local with the remote size are skipped
@@ -13,7 +13,7 @@ and renames only when the byte count equals Content-Length. Files already local 
 backoff; after a pass, the listing is refreshed (signed URLs expire) and missing files are retried, up to --passes.
 Interrupted `.part` files are retained; later attempts request the remaining bytes with HTTP Range, validate
 Content-Range before appending, and safely restart if the server ignores Range.
-Exit status is non-zero if any file is still missing -- check it, never the CLI's exit 0.
+Exit status is non-zero if any file is still missing; also validate expected artifacts after the pull.
 The kernel log is written to <dest>/<slug>.log as the CLI does. Credentials come from the environment (kaggle_as.py).
 """
 import argparse, os, re, sys, time
@@ -25,11 +25,12 @@ import requests
 def listing(kernel):
     from kaggle.api.kaggle_api_extended import KaggleApi
     from kagglesdk.kernels.types.kernels_api_service import ApiListKernelSessionOutputRequest
-    api = KaggleApi(); api.authenticate(); owner, slug, _ = api.parse_kernel_string(kernel)
+    api = KaggleApi(); api.authenticate(); owner, slug, version = api.parse_kernel_string(kernel)
     files, log, token = {}, None, None
     with api.build_kaggle_client() as k:
         while True:
             req = ApiListKernelSessionOutputRequest(); req.user_name, req.kernel_slug, req.page_size = owner, slug, 200
+            if version: req.version_label = f'v{version}' if version.isdigit() else version
             if token: req.page_token = token
             r = k.kernels.kernels_api_client.list_kernel_session_output(req)
             files.update({f.file_name: f.url for f in r.files or []}); log = log or r.log; token = r.next_page_token
@@ -71,7 +72,7 @@ def main():
     t0, total, done, missing = time.monotonic(), 0, set(), set()
     for p in range(a.passes):
         slug, files, log = listing(a.kernel)
-        if log and p == 0: (dest / f'{slug}.log').write_text(log)
+        if log and p == 0: (dest / f'{slug}.log').write_text(log, encoding='utf-8')
         todo = {n: u for n, u in files.items() if (not pat or pat.search(n)) and n not in done}
         if p == 0: print(f'{a.kernel}: {len(todo)} files, {a.jobs} parallel', flush=True)
         def one(item):

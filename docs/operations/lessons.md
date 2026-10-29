@@ -4,6 +4,16 @@
 [sổ lỗi kernel](notebook-errors.md); quy trình account/quota ở [kaggle](kaggle.md), Git/DVC ở [backup](backup.md).
 Bài học ở đây là quy tắc rút ra khi chạy thí nghiệm và hạ tầng; bài học về phương pháp/train/đánh giá ghi ở LESSONS.
 
+## Thiết lập host
+
+- 26/10: nhận diện máy từ cả OS nền và desktop session: `/etc/os-release` báo Ubuntu nhưng
+  session là Lubuntu/LXQt. RAM vật lý và swap phải đo riêng; không kế thừa hạn mức WSL cũ.
+  Số đo và đường dẫn hiện tại chỉ giữ tại [local-env](../../knowledge/local-env.md).
+- 25/10: lỗi DNS/NVIDIA-SMI trong sandbox không chứng minh mạng hoặc driver host hỏng. Đối chiếu terminal
+  host với quyền phiên; sau khi owner bật quyền, Git clone và CUDA hoạt động.
+- Đích OneDrive hiện là rclone mount. Kiểm mount trước push để tránh ghi nhầm thư mục local bên dưới;
+  kiểm cloud bằng rclone độc lập với VFS cache. [Remote và bằng chứng](backup.md).
+
 ## Kaggle, notebook và đường pipeline
 
 - **20/10 final startup crash:** test `--smoke --final` vẫn đọc pilot fixture, không chứng minh đường production final-only.

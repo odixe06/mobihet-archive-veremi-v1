@@ -101,3 +101,34 @@ class TransferTests(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+def test_historical_kernel_version_and_all_pages_are_preserved():
+    """Use the SDK request schema; never silently fetch latest for owner/slug/7."""
+    import sys
+    from types import ModuleType,SimpleNamespace
+    from unittest.mock import patch
+    from pull_kernel_output import listing
+
+    calls=[]
+    def output(req):
+        calls.append((req.version_label,req.page_token))
+        if not req.page_token:
+            return SimpleNamespace(files=[SimpleNamespace(file_name='first.txt',url='https://example.invalid/1')],
+                                   log='Tiếng Việt',next_page_token='next')
+        return SimpleNamespace(files=[SimpleNamespace(file_name='last.txt',url='https://example.invalid/2')],
+                               log=None,next_page_token=None)
+    backend=SimpleNamespace(kernels=SimpleNamespace(kernels_api_client=SimpleNamespace(list_kernel_session_output=output)))
+    class Client:
+        def __enter__(self):return backend
+        def __exit__(self,*args):pass
+    class Api:
+        def authenticate(self):pass
+        def parse_kernel_string(self,kernel):return kernel.split('/')
+        def build_kaggle_client(self):return Client()
+    module=ModuleType('kaggle.api.kaggle_api_extended');module.KaggleApi=Api
+    with patch.dict(sys.modules,{'kaggle':ModuleType('kaggle'),'kaggle.api':ModuleType('kaggle.api'),
+                                'kaggle.api.kaggle_api_extended':module}):
+        slug,files,log=listing('owner/slug/7')
+    assert slug=='slug' and set(files)=={'first.txt','last.txt'} and log=='Tiếng Việt'
+    assert calls==[('v7',''),('v7','next')]

@@ -74,8 +74,8 @@ bought a further 5% here and are not worth a crashed session.
 
 ## Watch host RAM, not just VRAM
 
-An 8 GB box is OOM-killed (exit 137, and it can take the desktop with it) long before a 4 GB
-GPU fills. When sampling a large parquet dataset:
+Read repository-root `knowledge/local-env.md` for measured RAM/GPU capacity and the current watchdog.
+Host RAM exhaustion can kill a job or freeze the desktop before GPU memory fills. When sampling a large parquet dataset:
 
 * read **row groups**, never `pq.read_table(whole_shard)` — one shard here is 2.7M rows;
 * spread the sample across many row groups: rows inside a group are contiguous, so one group

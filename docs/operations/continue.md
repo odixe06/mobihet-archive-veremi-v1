@@ -4,7 +4,35 @@
 Mỗi phiên sửa trực tiếp trang này; snapshot cũ chuyển vào [archive/operations](../archive/operations/README.md) kèm ngày, không tạo
 `continuation-*.md` mới cạnh trang này.
 
-## Đang chạy
+## Cập nhật Kaggle 27/10/2026
+
+CLI `nckh` đã nâng **2.2.5**, pin/skill hai cây và helper giữ version kernel đã cập nhật.
+Chi tiết kiểm chứng và giới hạn: [Kaggle](kaggle.md#kaggle-cli-225--cập-nhật-27102026).
+Chỉ cập nhật tooling; không thay trạng thái nghiên cứu/train hay thực hiện Git/DVC/backup.
+
+## Thiết lập host 25/10/2026
+
+Checkout mới ở `/home/odixe/project/mobihet`, env `nckh`; cấu hình máy hiện tại:
+[knowledge/local-env](../../knowledge/local-env.md). Skill `.agents` / `.claude` đã đồng bộ và sửa frontmatter.
+Đã thêm 16 account token; user login CLI sau, xem [Kaggle](kaggle.md). Remote DVC đã chuyển sang rclone
+`~/Cloud/OneDrive`; push/cloud-read/pull file thử đã PASS, xem [backup](backup.md).
+Chỉ thiết lập môi trường/kiểm tra; không launch Kaggle, không resume nghiên cứu, không Git push hoặc backup toàn bộ.
+Bảng công việc bên dưới là bàn giao lịch sử 23/10, không xác nhận tiến trình còn chạy trên host mới.
+
+### Kiểm tra lại host 26/10/2026
+
+Đã sửa tài liệu môi trường theo Lubuntu/LXQt và số đo hiện tại; cấu hình RAM/swap/GPU,
+runtime, Conda và dataset ORICO tại [local-env](../../knowledge/local-env.md).
+Nguồn dataset local theo owner là ORICO, không phải bản dataset OneDrive; remote DVC giữ nguyên.
+Không khởi động train/collector/backup trong phiên này. Kiểm process local không thấy job MobiHet;
+có tác vụ Python `rcd` của dự án khác và hai rclone mount — không can thiệp.
+Không kiểm lại trạng thái mọi kernel Kaggle remote; bảng 23/10 bên dưới vẫn là lịch sử.
+
+## Tiến trình trong phiên thiết lập 25/10
+
+Không job train/collector/backup nào được khởi động. Chỉ kiểm token/quota Kaggle, không xác nhận trạng thái mọi kernel remote.
+
+## Bàn giao tiến trình lịch sử 23/10
 
 | việc | chủ | trạng thái | ghi chú |
 |---|---|---|---|

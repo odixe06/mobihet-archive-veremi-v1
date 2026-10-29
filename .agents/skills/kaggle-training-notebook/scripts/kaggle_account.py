@@ -227,6 +227,22 @@ def _refresh_locked(user: str) -> int:
     return 0
 
 
+def saved_api_token(user: str) -> str:
+    """Read and introspect a saved API token in memory, without changing global login."""
+    from kaggle.api.kaggle_api_extended import KaggleApi
+    from kagglesdk.security.types.oauth_service import IntrospectTokenRequest
+
+    token = token_path(user).read_text().strip().removeprefix("Bearer ").strip()
+    api = KaggleApi.build_kaggle_client_with_params(args=[], api_token=token)
+    request = IntrospectTokenRequest()
+    request.token = token
+    with api:
+        identity = api.security.oauth_client.introspect_token(request)
+    if not identity.active or identity.username != user:
+        raise RuntimeError("API token inactive or identity does not match its saved filename")
+    return token
+
+
 def account_quota(user: str) -> dict:
     """Remaining GPU/TPU hours for one saved account, without disturbing the active login.
 
@@ -248,17 +264,22 @@ def account_quota(user: str) -> dict:
         ApiGetAcceleratorQuotaStatisticsRequest,
     )
 
-    client = KaggleClient()
-    with client:
-        creds = KaggleCredentials.load(client, file_path=str(creds_path(user)))
-        if creds is None:
-            raise RuntimeError("no usable refresh token in the snapshot")
-        creds._access_token = creds.generate_access_token().token
-        confirmed = creds.introspect()
-    if confirmed != user:
-        raise RuntimeError(f"snapshot is labelled {user} but the server says {confirmed}")
+    if creds_path(user).is_file():
+        client = KaggleClient()
+        with client:
+            creds = KaggleCredentials.load(client, file_path=str(creds_path(user)))
+            if creds is None:
+                raise RuntimeError("no usable refresh token in the snapshot")
+            creds._access_token = creds.generate_access_token().token
+            confirmed = creds.introspect()
+        if confirmed != user:
+            raise RuntimeError(f"snapshot is labelled {user} but the server says {confirmed}")
+        token = creds._access_token
+    else:
+        token = saved_api_token(user)
+        confirmed = user
 
-    api = KaggleApi.build_kaggle_client_with_params(args=[], api_token=creds._access_token)
+    api = KaggleApi.build_kaggle_client_with_params(args=[], api_token=token)
     with api:
         r = api.kernels.kernels_api_client.get_accelerator_quota_statistics(
             ApiGetAcceleratorQuotaStatisticsRequest())
@@ -280,12 +301,9 @@ def account_quota(user: str) -> dict:
 
 
 def survey() -> tuple[dict[str, dict], dict[str, str]]:
-    """Quota for every account holding CLI credentials; failures reported, never raised."""
+    """Quota for every saved OAuth or API-token account; failures reported, never raised."""
     quotas, failures = {}, {}
     for u in known_users():
-        if not creds_path(u).is_file():
-            failures[u] = "no CLI credentials — needs a browser login (see multi-account.md)"
-            continue
         try:
             quotas[u] = account_quota(u)
         except Exception as exc:                # a revoked refresh token surfaces here
@@ -344,8 +362,12 @@ def cmd_health(args: argparse.Namespace) -> int:
     rows = []
     for u in users:
         if not creds_path(u).is_file():
-            rows.append((u, "NO OAUTH", "browser login needed before this account can be used"))
-            problems += 1
+            try:
+                saved_api_token(u)
+                rows.append((u, "ok", "API token verified; no OAuth snapshot (global use/ensure requires OAuth)"))
+            except Exception as exc:
+                rows.append((u, "API FAILED", f"{type(exc).__name__}: token verification failed; details suppressed"))
+                problems += 1
             continue
         try:
             confirmed = snapshot_identity(u)
@@ -364,7 +386,7 @@ def cmd_health(args: argparse.Namespace) -> int:
         if not rows:
             print(f"all {len(users)} saved accounts healthy")
             return 0
-    print(f"{'account':<16} {'refresh token':<13} note")
+    print(f"{'account':<16} {'credential':<13} note")
     for user, state, note in rows:
         print(f"{user:<16} {state:<13} {note}")
     return 1 if problems else 0
@@ -414,7 +436,7 @@ def cmd_plan(args: argparse.Namespace) -> int:
           f"(service cap {KAGGLE_SESSION_HOURS:.0f} h)\n")
     print(f"{'account':<16} {'GPU left':>9} {'allocate':>9} {'sessions':>9}  note")
     for user, q, take, count in rows:
-        note = "ACTIVE" if user == active else "needs a confirmed switch"
+        note = "ACTIVE" if user == active else ("needs a confirmed switch" if creds_path(user).is_file() else "use kaggle_as.py (API token)")
         if q.get("gpu_reserved", 0) > 0:
             note += f"; {q['gpu_reserved']:.2f}h reserved — a session may be live"
         print(f"{user:<16} {q['gpu_left']:>8.2f}h {take:>8.2f}h {count:>9}  {note}")
